@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Navbar } from './components/Navbar.js';
 import { Sidebar, NavTab } from './components/Sidebar.js';
+import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { DashboardView } from './pages/DashboardView.js';
 import { PosView } from './pages/PosView.js';
 import { KitchenView } from './pages/KitchenView.js';
@@ -24,16 +25,18 @@ export function App() {
 
         <main className="flex-1 p-6 overflow-y-auto bg-slate-950">
           <div className="max-w-7xl mx-auto">
-            {currentTab === 'dashboard' && <DashboardView />}
-            {currentTab === 'pos' && <PosView />}
-            {currentTab === 'kitchen' && <KitchenView />}
-            {currentTab === 'inventory' && <InventoryView />}
-            {currentTab === 'menu' && <MenuView />}
-            {currentTab === 'credit' && <CreditView />}
-            {currentTab === 'invoices' && <InvoicesView />}
-            {currentTab === 'shifts' && <ShiftsView />}
-            {currentTab === 'finance' && <FinanceView />}
-            {currentTab === 'zra' && <ZraView />}
+            <ErrorBoundary>
+              {currentTab === 'dashboard' && <DashboardView />}
+              {currentTab === 'pos' && <PosView />}
+              {currentTab === 'kitchen' && <KitchenView />}
+              {currentTab === 'inventory' && <InventoryView />}
+              {currentTab === 'menu' && <MenuView />}
+              {currentTab === 'credit' && <CreditView />}
+              {currentTab === 'invoices' && <InvoicesView />}
+              {currentTab === 'shifts' && <ShiftsView />}
+              {currentTab === 'finance' && <FinanceView />}
+              {currentTab === 'zra' && <ZraView />}
+            </ErrorBoundary>
           </div>
         </main>
       </div>

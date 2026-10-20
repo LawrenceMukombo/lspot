@@ -20,8 +20,8 @@ const JWT_SECRET = process.env.JWT_SECRET || 'lspot-restaurant-super-secret-jwt-
 export function authenticate(req: RequestWithUser, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    // Provide a development fallback default user context if running in dev and no token
-    if (process.env.NODE_ENV !== 'production') {
+    // Provide a development fallback only if explicitly enabled via configuration
+    if (process.env.NODE_ENV !== 'production' && process.env.ALLOW_DEV_AUTH_BYPASS === 'true') {
       req.user = {
         id: '22222222-2222-2222-2222-222222222222',
         tenantId: DEFAULT_TENANT_ID,

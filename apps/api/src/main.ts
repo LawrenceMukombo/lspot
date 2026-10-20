@@ -54,13 +54,56 @@ app.use(`${API_PREFIX}/finance`, financeRouter);
 app.use(`${API_PREFIX}/sync`, syncRouter);
 app.use(`${API_PREFIX}/zra`, zraRouter);
 
-// Global Error Handler
+// Global Error Handler (ERR-01: Prisma error mapping and safe error sanitization)
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error('Unhandled Application Error:', err);
-  res.status(err.status || 500).json({
+
+  let status = err.status || err.statusCode || 500;
+  let code = err.code || 'INTERNAL_ERROR';
+  let message = err.message || 'An unexpected error occurred.';
+
+  // Map known Prisma ORM errors to user-friendly messages and appropriate HTTP statuses
+  if (err.name === 'PrismaClientKnownRequestError' || (typeof err.code === 'string' && err.code.startsWith('P'))) {
+    switch (err.code) {
+      case 'P2002':
+        status = 409;
+        code = 'RECORD_ALREADY_EXISTS';
+        message = 'A record with this unique value or identifier already exists.';
+        break;
+      case 'P2025':
+        status = 404;
+        code = 'RECORD_NOT_FOUND';
+        message = 'The requested database record was not found.';
+        break;
+      case 'P2003':
+        status = 400;
+        code = 'FOREIGN_KEY_VIOLATION';
+        message = 'A referenced record or constraint does not exist.';
+        break;
+      case 'P2014':
+        status = 400;
+        code = 'RELATION_VIOLATION';
+        message = 'The change would violate the relation constraint between records.';
+        break;
+      default:
+        status = 500;
+        code = 'DATABASE_ERROR';
+        message = 'A database operation error occurred. Please try again.';
+        break;
+    }
+  } else if (err.name === 'ZodError') {
+    status = 400;
+    code = 'VALIDATION_ERROR';
+    message = 'Request validation failed.';
+  } else if (status >= 500 && process.env.NODE_ENV === 'production') {
+    // In production, prevent leaking internal details or raw stack traces
+    message = 'An unexpected server error occurred. Please contact system support.';
+  }
+
+  res.status(status).json({
     success: false,
-    message: err.message || 'Internal server error occurred.',
-    code: err.code || 'INTERNAL_ERROR'
+    message,
+    code
   });
 });
 

@@ -2,6 +2,7 @@ import { prisma } from '@lspot/database';
 import {
   PaymentMethod,
   SaleStatus,
+  StockMovementType,
   calculateClosingPreparedPortions,
   roundTo2Decimals
 } from '@lspot/shared';
@@ -76,32 +77,32 @@ export class PosService {
       orderBy: { startedAt: 'desc' }
     });
 
-    // 3. Customer credit verification if credit payment used
     const creditPayment = data.payments.find((p: any) => p.method === PaymentMethod.CUSTOMER_CREDIT);
-    let customer: any = null;
-    if (creditPayment) {
-      if (!data.customerId) {
-        throw new Error('Customer ID is required for Credit sales');
-      }
-      customer = await prisma.customer.findUnique({
-        where: { id: data.customerId }
-      });
-      if (!customer) {
-        throw new Error('Customer account not found');
-      }
-      const limit = Number(customer.creditLimit);
-      const balance = Number(customer.currentBalance);
-      const available = limit - balance;
-
-      if (creditPayment.amount > available) {
-        throw new Error(`Credit limit exceeded! Customer available credit is K ${available.toFixed(2)}`);
-      }
-    }
-
     const saleNumber = `SALE-${Date.now().toString().slice(-8)}`;
 
     // 4. Atomic Execution: Sale + Items + Payments + Stock/Kitchen Update + Customer Balance + Shift Cash
     return prisma.$transaction(async (tx) => {
+      // CON-01: Customer credit headroom verification inside atomic transaction
+      let customer: any = null;
+      if (creditPayment) {
+        if (!data.customerId) {
+          throw new Error('Customer ID is required for Credit sales');
+        }
+        customer = await tx.customer.findUnique({
+          where: { id: data.customerId }
+        });
+        if (!customer) {
+          throw new Error('Customer account not found');
+        }
+        const limit = Number(customer.creditLimit);
+        const balance = Number(customer.currentBalance);
+        const available = roundTo2Decimals(limit - balance);
+
+        if (creditPayment.amount > available) {
+          throw new Error(`Credit limit exceeded! Customer available credit is K ${available.toFixed(2)} (Requested: K ${creditPayment.amount.toFixed(2)})`);
+        }
+      }
+
       const sale = await tx.sale.create({
         data: {
           tenantId,
@@ -146,13 +147,16 @@ export class PosService {
         where: { tenantId, branchId, businessDate: today, status: 'OPEN' }
       });
 
-      if (todayRegister) {
-        for (const lineItem of data.items) {
+      for (const lineItem of data.items) {
+        let isKitchenPortionManaged = false;
+
+        if (todayRegister) {
           const regItem = await tx.kitchenRegisterItem.findFirst({
             where: { registerId: todayRegister.id, menuItemId: lineItem.menuItemId }
           });
 
           if (regItem) {
+            isKitchenPortionManaged = true;
             const newSold = regItem.soldPortions + lineItem.quantity;
             const newRemaining = calculateClosingPreparedPortions({
               openingPortions: regItem.openingPortions,
@@ -170,6 +174,58 @@ export class PosService {
                 remainingPortions: newRemaining
               }
             });
+          }
+        }
+
+        // FIN-01: Direct resale items (e.g. beverages, water) without kitchen register portions
+        // Deduct directly from perpetual stock and record POS_SALE_DEDUCTION movement
+        if (!isKitchenPortionManaged) {
+          const menuItem = await tx.menuItem.findUnique({
+            where: { id: lineItem.menuItemId }
+          });
+
+          if (menuItem) {
+            // Find matching stock item by SKU or name
+            const stockItem = await tx.stockItem.findFirst({
+              where: {
+                tenantId,
+                OR: [
+                  ...(menuItem.sku ? [{ sku: menuItem.sku }] : []),
+                  { name: { contains: menuItem.name, mode: 'insensitive' as const } },
+                  ...(menuItem.name.toLowerCase().includes('coca cola') || menuItem.name.toLowerCase().includes('soft drink') ? [{ sku: 'BEV-COKE-350' }] : []),
+                  ...(menuItem.name.toLowerCase().includes('water') ? [{ sku: 'BEV-WATER-500' }] : [])
+                ]
+              }
+            });
+
+            if (stockItem) {
+              const currentStock = Number(stockItem.currentStock);
+              const qtyToDeduct = Number(lineItem.quantity);
+              const newStock = Math.max(0, Number((currentStock - qtyToDeduct).toFixed(4)));
+              const unitCost = Number(stockItem.averageUnitCost);
+              const totalVal = Number((newStock * unitCost).toFixed(2));
+
+              await tx.stockItem.update({
+                where: { id: stockItem.id },
+                data: {
+                  currentStock: newStock,
+                  totalValue: totalVal
+                }
+              });
+
+              await tx.stockMovement.create({
+                data: {
+                  tenantId,
+                  stockItemId: stockItem.id,
+                  movementType: StockMovementType.POS_SALE_DEDUCTION,
+                  quantity: qtyToDeduct,
+                  unitCost: unitCost,
+                  totalValue: Number((qtyToDeduct * unitCost).toFixed(2)),
+                  referenceId: sale.id,
+                  notes: `POS Sale ${saleNumber}: ${qtyToDeduct}x ${menuItem.name}`
+                }
+              });
+            }
           }
         }
       }

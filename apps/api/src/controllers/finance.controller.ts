@@ -8,7 +8,13 @@ export const financeRouter = Router();
 
 financeRouter.get('/dashboard', authenticate, async (req: RequestWithUser, res: Response) => {
   try {
-    const summary = await financeService.getDashboardSummary(req.user!.tenantId);
+    const rawStart = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+    const startDate = rawStart && !isNaN(rawStart.getTime()) ? rawStart : undefined;
+
+    const rawEnd = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+    const endDate = rawEnd && !isNaN(rawEnd.getTime()) ? rawEnd : undefined;
+
+    const summary = await financeService.getDashboardSummary(req.user!.tenantId, startDate, endDate);
     return res.json({ success: true, data: summary });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });

@@ -9,10 +9,13 @@ import {
   Layers,
   ArrowUpRight,
   Receipt,
-  RotateCcw
+  RotateCcw,
+  Calendar
 } from 'lucide-react';
 import { apiRequest } from '../api.js';
 import { formatZMW } from '@lspot/shared';
+
+type DateRangeOption = 'today' | 'yesterday' | 'week' | 'month';
 
 export function DashboardView() {
   const [data, setData] = useState<any>({
@@ -34,16 +37,45 @@ export function DashboardView() {
     totalPortionsWaste: 3
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedRange, setSelectedRange] = useState<DateRangeOption>('today');
   const [filterType, setFilterType] = useState<'ALL' | 'CASH' | 'MOMO' | 'CREDIT'>('ALL');
 
   useEffect(() => {
-    loadDashboard();
-  }, []);
+    loadDashboard(selectedRange);
+  }, [selectedRange]);
 
-  const loadDashboard = async () => {
+  const getDateRangeBounds = (range: DateRangeOption) => {
+    const now = new Date();
+    const start = new Date(now);
+    const end = new Date(now);
+
+    if (range === 'today') {
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+    } else if (range === 'yesterday') {
+      start.setDate(start.getDate() - 1);
+      start.setHours(0, 0, 0, 0);
+      end.setDate(end.getDate() - 1);
+      end.setHours(23, 59, 59, 999);
+    } else if (range === 'week') {
+      start.setDate(start.getDate() - 7);
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+    } else if (range === 'month') {
+      start.setDate(1);
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+    }
+
+    return { start, end };
+  };
+
+  const loadDashboard = async (range: DateRangeOption = selectedRange) => {
     setIsLoading(true);
     try {
-      const res = await apiRequest('/finance/dashboard');
+      const { start, end } = getDateRangeBounds(range);
+      const query = `?startDate=${encodeURIComponent(start.toISOString())}&endDate=${encodeURIComponent(end.toISOString())}`;
+      const res = await apiRequest(`/finance/dashboard${query}`);
       if (res) setData(res);
     } catch (e) {
       console.log('Using default dashboard metrics');
@@ -60,7 +92,7 @@ export function DashboardView() {
 
   return (
     <div className="space-y-6">
-      {/* Top Banner */}
+      {/* Top Banner with Quick Date Filter */}
       <div className="flex flex-wrap items-center justify-between gap-4 bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
         <div>
           <div className="flex items-center gap-2">
@@ -74,14 +106,40 @@ export function DashboardView() {
           </p>
         </div>
 
-        <button
-          onClick={loadDashboard}
-          disabled={isLoading}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold rounded-xl border border-slate-700 transition"
-        >
-          <RotateCcw className={`w-4 h-4 text-amber-400 ${isLoading ? 'animate-spin' : ''}`} />
-          Refresh Data
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Quick Date Range Buttons (UI-02) */}
+          <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-semibold">
+            {(
+              [
+                { id: 'today', label: 'Today' },
+                { id: 'yesterday', label: 'Yesterday' },
+                { id: 'week', label: 'This Week' },
+                { id: 'month', label: 'This Month' }
+              ] as const
+            ).map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setSelectedRange(item.id)}
+                className={`px-3 py-1.5 rounded-lg transition-all ${
+                  selectedRange === item.id
+                    ? 'bg-amber-500 text-slate-950 font-bold shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => loadDashboard()}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700 transition"
+          >
+            <RotateCcw className={`w-3.5 h-3.5 text-amber-400 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* KPI Cards Grid */}

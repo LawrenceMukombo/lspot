@@ -2,13 +2,22 @@ import { prisma } from '@lspot/database';
 import { roundTo2Decimals, calculateGrossProfit, calculateOperatingProfit } from '@lspot/shared';
 
 export class FinanceService {
-  async getDashboardSummary(tenantId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+  async getDashboardSummary(tenantId: string, startDate?: Date, endDate?: Date) {
+    const isStartValid = startDate instanceof Date && !isNaN(startDate.getTime());
+    const isEndValid = endDate instanceof Date && !isNaN(endDate.getTime());
 
-    // 1. Sales today
-    const salesToday = await prisma.sale.findMany({
-      where: { tenantId, createdAt: { gte: today } },
+    const start = isStartValid ? new Date(startDate.getTime()) : new Date();
+    if (!isStartValid) start.setHours(0, 0, 0, 0);
+
+    const end = isEndValid ? new Date(endDate.getTime()) : new Date();
+    if (!isEndValid) end.setHours(23, 59, 59, 999);
+
+    // 1. Sales in period
+    const salesInPeriod = await prisma.sale.findMany({
+      where: {
+        tenantId,
+        createdAt: { gte: start, lte: end }
+      },
       include: { payments: true, items: { include: { menuItem: true } } }
     });
 
@@ -19,7 +28,7 @@ export class FinanceService {
     let cogsToday = 0;
     let totalPortionsSold = 0;
 
-    for (const s of salesToday) {
+    for (const s of salesInPeriod) {
       todaySales += Number(s.totalAmount);
       for (const p of s.payments) {
         const amt = Number(p.amount);
@@ -39,11 +48,14 @@ export class FinanceService {
     });
     const outstandingDebtors = customers.reduce((sum, c) => sum + Number(c.currentBalance), 0);
 
-    // 3. Operating Expenses today
-    const expensesToday = await prisma.expense.findMany({
-      where: { tenantId, expenseDate: { gte: today } }
+    // 3. Operating Expenses in period
+    const expensesInPeriod = await prisma.expense.findMany({
+      where: {
+        tenantId,
+        expenseDate: { gte: start, lte: end }
+      }
     });
-    const operatingExpenses = expensesToday.reduce((sum, e) => sum + Number(e.amount), 0);
+    const operatingExpenses = expensesInPeriod.reduce((sum, e) => sum + Number(e.amount), 0);
 
     // 4. Inventory Value & Low stock items
     const stockItems = await prisma.stockItem.findMany({
@@ -60,15 +72,23 @@ export class FinanceService {
       }
     }
 
-    // 5. Kitchen Production today
-    const kitchenRegister = await prisma.kitchenRegister.findFirst({
-      where: { tenantId, businessDate: today },
+    // 5. Kitchen Production in period
+    const startDay = new Date(start);
+    startDay.setHours(0, 0, 0, 0);
+    const endDay = new Date(end);
+    endDay.setHours(23, 59, 59, 999);
+
+    const kitchenRegisters = await prisma.kitchenRegister.findMany({
+      where: {
+        tenantId,
+        businessDate: { gte: startDay, lte: endDay }
+      },
       include: { items: true }
     });
     let totalPortionsPrepared = 0;
     let totalPortionsWaste = 0;
-    if (kitchenRegister) {
-      for (const item of kitchenRegister.items) {
+    for (const reg of kitchenRegisters) {
+      for (const item of reg.items) {
         totalPortionsPrepared += item.preparedPortions;
         totalPortionsWaste += item.wastePortions;
       }
@@ -79,6 +99,10 @@ export class FinanceService {
 
     return {
       currency: 'ZMW',
+      period: {
+        startDate: start.toISOString(),
+        endDate: end.toISOString()
+      },
       todaySales: roundTo2Decimals(todaySales),
       cashReceived: roundTo2Decimals(cashReceived),
       mobileMoneyReceived: roundTo2Decimals(mobileMoneyReceived),

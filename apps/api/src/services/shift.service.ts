@@ -60,6 +60,42 @@ export class ShiftService {
       actualCashCounted: Number(data.actualCashCounted)
     });
 
+    // FIN-02: Check cash tolerance from business settings
+    const settings = await prisma.businessSetting.findFirst({
+      where: { tenantId: shift.tenantId }
+    });
+    const tolerance = settings ? Number(settings.cashToleranceZmw) : 5.0;
+
+    let supervisorId: string | null = null;
+    let varianceExplanation = data.varianceExplanation || null;
+
+    if (Math.abs(recon.variance) > tolerance) {
+      if (!data.supervisorPin) {
+        throw new Error(
+          `Cash variance of K ${Math.abs(recon.variance).toFixed(2)} exceeds allowable tolerance of K ${tolerance.toFixed(2)}. Supervisor PIN approval is required.`
+        );
+      }
+
+      // Verify supervisor PIN
+      const supervisor = await prisma.user.findFirst({
+        where: {
+          tenantId: shift.tenantId,
+          supervisorPin: data.supervisorPin,
+          role: { in: ['OWNER', 'MANAGER', 'SUPER_ADMIN', 'ACCOUNTANT'] },
+          isActive: true
+        }
+      });
+
+      if (!supervisor) {
+        throw new Error('Invalid Supervisor PIN. Only authorized managers or owners can approve cash shift variances.');
+      }
+
+      supervisorId = supervisor.id;
+      varianceExplanation = varianceExplanation
+        ? `${varianceExplanation} (Approved by supervisor: ${supervisor.fullName})`
+        : `Approved by supervisor: ${supervisor.fullName}`;
+    }
+
     const closed = await prisma.cashierShift.update({
       where: { id: shift.id },
       data: {
@@ -68,7 +104,8 @@ export class ShiftService {
         actualCashCounted: recon.actualCashCounted,
         expectedCash: recon.expectedClosingCash,
         variance: recon.variance,
-        varianceExplanation: data.varianceExplanation || null
+        varianceExplanation,
+        supervisorId
       },
       include: {
         cashier: { select: { fullName: true } }
