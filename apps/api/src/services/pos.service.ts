@@ -44,6 +44,8 @@ export class PosService {
       return {
         id: i.id,
         name: i.name,
+        description: i.description,
+        imageUrl: i.imageUrl,
         categoryId: i.categoryId,
         categoryName: i.category.name,
         sellingPrice: price,

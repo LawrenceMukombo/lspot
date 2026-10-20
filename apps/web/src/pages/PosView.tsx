@@ -11,7 +11,9 @@ import {
   CheckCircle,
   Receipt,
   User,
-  AlertCircle
+  AlertCircle,
+  Info,
+  X
 } from 'lucide-react';
 import { apiRequest } from '../api.js';
 import { formatZMW, PaymentMethod } from '@lspot/shared';
@@ -19,6 +21,8 @@ import { formatZMW, PaymentMethod } from '@lspot/shared';
 interface MenuItem {
   id: string;
   name: string;
+  description?: string;
+  imageUrl?: string;
   categoryId: string;
   categoryName?: string;
   sellingPrice: number;
@@ -44,6 +48,9 @@ export function PosView() {
   const [orderType, setOrderType] = useState<'DINE_IN' | 'TAKEAWAY'>('DINE_IN');
   const [tableNumber, setTableNumber] = useState('');
 
+  // Item details modal
+  const [detailItem, setDetailItem] = useState<MenuItem | null>(null);
+
   // Checkout modal
   const [showCheckout, setShowCheckout] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
@@ -64,15 +71,92 @@ export function PosView() {
         setItems(data.items || []);
       }
     } catch (e) {
-      // Fallback Zambian sample data
+      // Fallback Zambian sample data with photos
       setItems([
-        { id: 'm1', name: 'Nshima with Chicken', categoryId: 'c1', categoryName: 'Traditional Zambian Meals', sellingPrice: 65, portionSize: 'Standard Portion', remainingPortions: 18, isAvailable: true },
-        { id: 'm2', name: 'Nshima with Beef Stew', categoryId: 'c1', categoryName: 'Traditional Zambian Meals', sellingPrice: 70, portionSize: 'Standard Portion', remainingPortions: 14, isAvailable: true },
-        { id: 'm3', name: 'Nshima with Bream Fish', categoryId: 'c1', categoryName: 'Traditional Zambian Meals', sellingPrice: 75, portionSize: 'Whole Fish', remainingPortions: 8, isAvailable: true },
-        { id: 'm4', name: 'Rice with Chicken', categoryId: 'c1', categoryName: 'Traditional Zambian Meals', sellingPrice: 65, portionSize: 'Standard Portion', remainingPortions: 12, isAvailable: true },
-        { id: 'm5', name: 'Beans with Nshima & Veg', categoryId: 'c1', categoryName: 'Traditional Zambian Meals', sellingPrice: 40, portionSize: 'Standard Portion', remainingPortions: 20, isAvailable: true },
-        { id: 'm6', name: 'Coca Cola 350ml Glass', categoryId: 'c2', categoryName: 'Cold Beverages', sellingPrice: 15, portionSize: 'Bottle', remainingPortions: 120, isAvailable: true },
-        { id: 'm7', name: 'Bottled Mineral Water 500ml', categoryId: 'c2', categoryName: 'Cold Beverages', sellingPrice: 10, portionSize: 'Bottle', remainingPortions: 150, isAvailable: true }
+        {
+          id: 'menu-001',
+          name: 'Nshima with Chicken',
+          description: 'Authentic steaming white nshima served with tender stewed village chicken in rich tomato and onion gravy with fresh greens',
+          imageUrl: '/images/food/nshima_chicken.jpg',
+          categoryId: 'c1',
+          categoryName: 'Traditional Zambian Meals',
+          sellingPrice: 65,
+          portionSize: 'Standard Portion',
+          remainingPortions: 18,
+          isAvailable: true
+        },
+        {
+          id: 'menu-002',
+          name: 'Nshima with Beef Stew',
+          description: 'Hearty slow-braised beef stew with thick savory gravy, accompanied by hot white nshima and stir-fried rape greens',
+          imageUrl: '/images/food/nshima_beef.jpg',
+          categoryId: 'c1',
+          categoryName: 'Traditional Zambian Meals',
+          sellingPrice: 70,
+          portionSize: 'Standard Portion',
+          remainingPortions: 14,
+          isAvailable: true
+        },
+        {
+          id: 'menu-003',
+          name: 'Nshima with Bream Fish',
+          description: 'Whole crispy golden fried Kariba bream fish garnished with fresh lemon, served with white nshima and seasoned tomato relish',
+          imageUrl: '/images/food/nshima_fish.jpg',
+          categoryId: 'c1',
+          categoryName: 'Traditional Zambian Meals',
+          sellingPrice: 75,
+          portionSize: 'Whole Fish Portion',
+          remainingPortions: 8,
+          isAvailable: true
+        },
+        {
+          id: 'menu-004',
+          name: 'Nshima with Beans & Veg',
+          description: 'Slow-cooked Zambian red sugar beans in rich tomato gravy, served with fluffy nshima and steamed green vegetables',
+          imageUrl: '/images/food/nshima_beans.jpg',
+          categoryId: 'c1',
+          categoryName: 'Traditional Zambian Meals',
+          sellingPrice: 40,
+          portionSize: 'Standard Portion',
+          remainingPortions: 20,
+          isAvailable: true
+        },
+        {
+          id: 'menu-005',
+          name: 'Rice with Chicken',
+          description: 'Fragrant steamed long-grain rice served with succulent seasoned roasted chicken, savory gravy, and crisp garden salad',
+          imageUrl: '/images/food/rice_chicken.jpg',
+          categoryId: 'c1',
+          categoryName: 'Traditional Zambian Meals',
+          sellingPrice: 65,
+          portionSize: 'Standard Portion',
+          remainingPortions: 12,
+          isAvailable: true
+        },
+        {
+          id: 'menu-006',
+          name: 'Soft Drink (Coca Cola 350ml)',
+          description: 'Chilled 350ml glass bottle of Coca-Cola served ice-cold with classic effervescence',
+          imageUrl: '/images/food/coke_bottle.jpg',
+          categoryId: 'c2',
+          categoryName: 'Cold Beverages',
+          sellingPrice: 15,
+          portionSize: 'Bottle',
+          remainingPortions: 120,
+          isAvailable: true
+        },
+        {
+          id: 'menu-007',
+          name: 'Bottled Mineral Water 500ml',
+          description: 'Pure, refreshing chilled natural mineral water in a 500ml bottle',
+          imageUrl: '/images/food/bottled_water.jpg',
+          categoryId: 'c2',
+          categoryName: 'Cold Beverages',
+          sellingPrice: 10,
+          portionSize: 'Bottle',
+          remainingPortions: 150,
+          isAvailable: true
+        }
       ]);
       setCategories([
         { id: 'c1', name: 'Traditional Zambian Meals' },
@@ -232,41 +316,96 @@ export function PosView() {
           </div>
         </div>
 
-        {/* Product Tiles Grid */}
-        <div className="flex-1 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3.5 pr-1">
+        {/* Product Tiles Grid with High-Resolution Food Photography */}
+        <div className="flex-1 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3.5 pr-1 pb-4">
           {filteredItems.map((item) => (
             <div
               key={item.id}
               onClick={() => addToCart(item)}
-              className="bg-slate-900 border border-slate-800 hover:border-amber-500/60 p-4 rounded-2xl flex flex-col justify-between shadow-md hover:shadow-xl transition-all cursor-pointer group active:scale-95 select-none"
+              className="bg-slate-900 border border-slate-800 hover:border-amber-500/60 rounded-2xl flex flex-col justify-between shadow-md hover:shadow-2xl transition-all cursor-pointer group active:scale-[0.98] select-none overflow-hidden"
             >
-              <div>
-                <div className="flex items-start justify-between gap-1 mb-1">
-                  <h4 className="font-bold text-sm text-slate-100 group-hover:text-amber-400 transition leading-snug">
-                    {item.name}
-                  </h4>
+              {/* Dish Photo Container */}
+              <div className="relative w-full h-32 sm:h-36 bg-slate-950 overflow-hidden">
+                {item.imageUrl ? (
+                  <img
+                    src={item.imageUrl}
+                    alt={item.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-900 to-slate-950 text-slate-600">
+                    <Receipt className="w-8 h-8" />
+                  </div>
+                )}
+                {/* Gradient shade for bottom readability */}
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-black/30 pointer-events-none" />
+
+                {/* Stock remaining pill */}
+                <div className="absolute top-2 right-2 z-10">
                   <span
-                    className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                    className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full backdrop-blur-md shadow-sm ${
                       item.remainingPortions > 5
-                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                        ? 'bg-emerald-950/85 text-emerald-300 border border-emerald-500/30'
                         : item.remainingPortions > 0
-                        ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                        : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                        ? 'bg-amber-950/85 text-amber-300 border border-amber-500/30'
+                        : 'bg-rose-950/85 text-rose-300 border border-rose-500/30'
                     }`}
                   >
                     {item.remainingPortions} left
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-400">{item.portionSize}</p>
+
+                {/* Info / Details Button */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDetailItem(item);
+                  }}
+                  title="View full dish details"
+                  className="absolute top-2 left-2 z-10 w-6 h-6 rounded-full bg-slate-950/80 hover:bg-amber-500 hover:text-slate-950 text-slate-300 flex items-center justify-center backdrop-blur-md border border-slate-700/60 transition"
+                >
+                  <Info className="w-3.5 h-3.5" />
+                </button>
+
+                {/* Portion size pill on image bottom */}
+                <div className="absolute bottom-2 left-2 z-10">
+                  <span className="text-[10px] font-medium bg-slate-900/85 backdrop-blur-md border border-slate-700/60 text-slate-200 px-2 py-0.5 rounded-md">
+                    {item.portionSize}
+                  </span>
+                </div>
               </div>
 
-              <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-800/80">
-                <span className="font-mono font-bold text-amber-400 text-base">
-                  {formatZMW(item.sellingPrice)}
-                </span>
-                <button className="w-7 h-7 rounded-lg bg-slate-800 group-hover:bg-amber-500 group-hover:text-slate-950 text-slate-300 flex items-center justify-center transition">
-                  <Plus className="w-4 h-4" />
-                </button>
+              {/* Dish Name, Description and Price Footer */}
+              <div className="p-3 flex flex-col justify-between flex-1">
+                <div>
+                  <h4 className="font-bold text-sm text-slate-100 group-hover:text-amber-400 transition leading-snug line-clamp-1">
+                    {item.name}
+                  </h4>
+                  {item.description ? (
+                    <p className="text-[11px] text-slate-400 line-clamp-2 mt-1 leading-relaxed">
+                      {item.description}
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-slate-500 mt-1">{item.categoryName || 'Kitchen Dish'}</p>
+                  )}
+                </div>
+
+                <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-800/80">
+                  <div>
+                    <span className="text-[10px] uppercase font-semibold text-slate-500 block -mb-0.5">Price</span>
+                    <span className="font-mono font-bold text-amber-400 text-base">
+                      {formatZMW(item.sellingPrice)}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="w-8 h-8 rounded-xl bg-slate-800 group-hover:bg-amber-500 group-hover:text-slate-950 text-slate-300 flex items-center justify-center transition shadow-sm"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -339,10 +478,23 @@ export function PosView() {
             cart.map((item) => (
               <div
                 key={item.id}
-                className="p-2.5 bg-slate-950/70 border border-slate-800/80 rounded-xl flex items-center justify-between text-sm"
+                className="p-2.5 bg-slate-950/70 border border-slate-800/80 rounded-xl flex items-center justify-between text-sm gap-2"
               >
-                <div className="flex-1 pr-2">
-                  <p className="font-semibold text-slate-200 leading-tight">{item.name}</p>
+                {/* Food thumbnail */}
+                {item.imageUrl ? (
+                  <img
+                    src={item.imageUrl}
+                    alt={item.name}
+                    className="w-11 h-11 rounded-lg object-cover border border-slate-800 shrink-0"
+                  />
+                ) : (
+                  <div className="w-11 h-11 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center shrink-0 text-amber-500">
+                    <Receipt className="w-5 h-5" />
+                  </div>
+                )}
+
+                <div className="flex-1 min-w-0 pr-1">
+                  <p className="font-semibold text-slate-200 leading-tight truncate">{item.name}</p>
                   <p className="text-xs text-slate-400 font-mono mt-0.5">
                     {formatZMW(item.sellingPrice)} × {item.quantity}
                   </p>
@@ -540,6 +692,122 @@ export function PosView() {
             >
               Start Next Order
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Dish Details Modal with Large Photography */}
+      {detailItem && (
+        <div
+          onClick={() => setDetailItem(null)}
+          className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-200"
+          >
+            {/* Hero Image Container */}
+            <div className="relative w-full h-56 bg-slate-950">
+              {detailItem.imageUrl ? (
+                <img
+                  src={detailItem.imageUrl}
+                  alt={detailItem.name}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-slate-950 text-slate-700">
+                  <Receipt className="w-16 h-16" />
+                </div>
+              )}
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-black/40" />
+
+              {/* Close Button */}
+              <button
+                type="button"
+                onClick={() => setDetailItem(null)}
+                className="absolute top-3 right-3 w-8 h-8 rounded-full bg-slate-950/80 hover:bg-slate-800 text-slate-200 flex items-center justify-center backdrop-blur-md border border-slate-700/60 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              {/* Category & Remaining Portions */}
+              <div className="absolute bottom-3 left-4 right-4 flex items-center justify-between">
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-amber-500/90 text-slate-950 shadow-md">
+                  {detailItem.categoryName || 'Kitchen Dish'}
+                </span>
+                <span
+                  className={`text-xs font-mono font-bold px-2.5 py-1 rounded-lg backdrop-blur-md ${
+                    detailItem.remainingPortions > 5
+                      ? 'bg-emerald-950/90 text-emerald-300 border border-emerald-500/30'
+                      : detailItem.remainingPortions > 0
+                      ? 'bg-amber-950/90 text-amber-300 border border-amber-500/30'
+                      : 'bg-rose-950/90 text-rose-300 border border-rose-500/30'
+                  }`}
+                >
+                  {detailItem.remainingPortions} Portions Left Today
+                </span>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4 overflow-y-auto">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-xl font-bold text-white tracking-tight leading-snug">
+                    {detailItem.name}
+                  </h3>
+                  <p className="text-xs font-medium text-amber-400/90 mt-0.5">
+                    Portion: {detailItem.portionSize}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] uppercase font-semibold text-slate-500 block">Unit Price</span>
+                  <span className="text-2xl font-bold font-mono text-amber-400">
+                    {formatZMW(detailItem.sellingPrice)}
+                  </span>
+                </div>
+              </div>
+
+              {detailItem.description && (
+                <div className="p-3.5 bg-slate-950/70 border border-slate-800/80 rounded-2xl text-xs text-slate-300 leading-relaxed">
+                  <span className="font-semibold text-slate-200 block mb-1">Culinary Description:</span>
+                  {detailItem.description}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2.5 text-xs">
+                <div className="p-3 bg-slate-950/50 border border-slate-800 rounded-xl">
+                  <span className="text-slate-500 block text-[10px] uppercase">Service Type</span>
+                  <span className="font-semibold text-slate-200 mt-0.5 block">Dine-in or Takeaway</span>
+                </div>
+                <div className="p-3 bg-slate-950/50 border border-slate-800 rounded-xl">
+                  <span className="text-slate-500 block text-[10px] uppercase">Preparation</span>
+                  <span className="font-semibold text-slate-200 mt-0.5 block">Cooked Daily on Site</span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-2 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDetailItem(null)}
+                  className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm rounded-xl transition"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    addToCart(detailItem);
+                    setDetailItem(null);
+                  }}
+                  className="flex-2 flex items-center justify-center gap-2 py-3 px-5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm rounded-xl transition shadow-lg shadow-amber-500/20 active:scale-95"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add to Current Order
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

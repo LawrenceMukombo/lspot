@@ -278,23 +278,90 @@ export async function seedDatabase() {
     }
   });
 
-  // Menu items with standard ZMW prices
+  // Menu items with standard ZMW prices, descriptions and food photography
   const menuData = [
-    { id: 'menu-001', name: 'Nshima with Chicken', price: 65.0, cost: 28.5, catId: tradCat.id, portion: 'Standard Portion' },
-    { id: 'menu-002', name: 'Nshima with Beef', price: 70.0, cost: 32.0, catId: tradCat.id, portion: 'Standard Portion' },
-    { id: 'menu-003', name: 'Nshima with Fish (Bream)', price: 75.0, cost: 36.0, catId: tradCat.id, portion: 'Whole Fish Portion' },
-    { id: 'menu-004', name: 'Nshima with Beans & Veg', price: 40.0, cost: 14.0, catId: tradCat.id, portion: 'Standard Portion' },
-    { id: 'menu-005', name: 'Rice with Chicken', price: 65.0, cost: 29.0, catId: tradCat.id, portion: 'Standard Portion' },
-    { id: 'menu-006', name: 'Soft Drink (Coca Cola 350ml)', price: 15.0, cost: 10.0, catId: drinksCat.id, portion: 'Bottle' },
-    { id: 'menu-007', name: 'Bottled Mineral Water 500ml', price: 10.0, cost: 5.0, catId: drinksCat.id, portion: 'Bottle' }
+    {
+      id: 'menu-001',
+      name: 'Nshima with Chicken',
+      description: 'Authentic steaming white nshima served with tender stewed village chicken in rich tomato and onion gravy with fresh greens',
+      price: 65.0,
+      cost: 28.5,
+      catId: tradCat.id,
+      portion: 'Standard Portion',
+      imageUrl: '/images/food/nshima_chicken.jpg'
+    },
+    {
+      id: 'menu-002',
+      name: 'Nshima with Beef',
+      description: 'Hearty slow-braised beef stew with thick savory gravy, accompanied by hot white nshima and stir-fried rape greens',
+      price: 70.0,
+      cost: 32.0,
+      catId: tradCat.id,
+      portion: 'Standard Portion',
+      imageUrl: '/images/food/nshima_beef.jpg'
+    },
+    {
+      id: 'menu-003',
+      name: 'Nshima with Fish (Bream)',
+      description: 'Whole crispy golden fried Kariba bream fish garnished with fresh lemon, served with white nshima and seasoned tomato relish',
+      price: 75.0,
+      cost: 36.0,
+      catId: tradCat.id,
+      portion: 'Whole Fish Portion',
+      imageUrl: '/images/food/nshima_fish.jpg'
+    },
+    {
+      id: 'menu-004',
+      name: 'Nshima with Beans & Veg',
+      description: 'Slow-cooked Zambian red sugar beans in rich tomato gravy, served with fluffy nshima and steamed green vegetables',
+      price: 40.0,
+      cost: 14.0,
+      catId: tradCat.id,
+      portion: 'Standard Portion',
+      imageUrl: '/images/food/nshima_beans.jpg'
+    },
+    {
+      id: 'menu-005',
+      name: 'Rice with Chicken',
+      description: 'Fragrant steamed long-grain rice served with succulent seasoned roasted chicken, savory gravy, and crisp garden salad',
+      price: 65.0,
+      cost: 29.0,
+      catId: tradCat.id,
+      portion: 'Standard Portion',
+      imageUrl: '/images/food/rice_chicken.jpg'
+    },
+    {
+      id: 'menu-006',
+      name: 'Soft Drink (Coca Cola 350ml)',
+      description: 'Chilled 350ml glass bottle of Coca-Cola served ice-cold with classic effervescence',
+      price: 15.0,
+      cost: 10.0,
+      catId: drinksCat.id,
+      portion: 'Bottle',
+      imageUrl: '/images/food/coke_bottle.jpg'
+    },
+    {
+      id: 'menu-007',
+      name: 'Bottled Mineral Water 500ml',
+      description: 'Pure, refreshing chilled natural mineral water in a 500ml bottle',
+      price: 10.0,
+      cost: 5.0,
+      catId: drinksCat.id,
+      portion: 'Bottle',
+      imageUrl: '/images/food/bottled_water.jpg'
+    }
   ];
 
   for (const m of menuData) {
     await prisma.menuItem.upsert({
       where: { id: m.id },
       update: {
+        name: m.name,
+        description: m.description,
         sellingPrice: m.price,
         estimatedCost: m.cost,
+        imageUrl: m.imageUrl,
+        portionSize: m.portion,
         isAvailable: true
       },
       create: {
@@ -303,8 +370,10 @@ export async function seedDatabase() {
         branchId: branch.id,
         categoryId: m.catId,
         name: m.name,
+        description: m.description,
         sellingPrice: m.price,
         estimatedCost: m.cost,
+        imageUrl: m.imageUrl,
         portionSize: m.portion,
         isAvailable: true
       }
