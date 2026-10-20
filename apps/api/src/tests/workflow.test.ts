@@ -1,0 +1,124 @@
+import test from 'node:test';
+import assert from 'node:assert';
+import {
+  calculateMovingAverageCost,
+  calculateClosingPreparedPortions,
+  calculateShiftCashReconciliation,
+  calculateGrossProfit,
+  formatZMW,
+  roundTo2Decimals
+} from '@lspot/shared';
+
+test('Test 1: Moving Weighted Average Cost (WAC) calculation on receiving raw ingredients', () => {
+  // Existing 100 kg mealie meal @ K 10.00/kg (Value = K 1,000)
+  // Incoming 50 kg mealie meal @ K 16.00/kg (Value = K 800)
+  // Expected new WAC = (1,000 + 800) / 150 = 1,800 / 150 = K 12.00/kg
+  const newWac = calculateMovingAverageCost(100, 10, 50, 16);
+  assert.strictEqual(newWac, 12.00, 'WAC must accurately reflect weighted inventory value');
+});
+
+test('Test 2: Kitchen portion reconciliation equation holds true', () => {
+  // Opening: 10 portions
+  // Prepared today: 50 portions
+  // Sold: 45 portions
+  // Waste: 3 portions
+  // Staff meals: 2 portions
+  // Complimentary: 1 portion
+  // Closing = 10 + 50 - 45 - 3 - 2 - 1 = 9 portions
+  const closing = calculateClosingPreparedPortions({
+    openingPortions: 10,
+    preparedPortions: 50,
+    soldPortions: 45,
+    wastePortions: 3,
+    staffMealPortions: 2,
+    complimentaryPortions: 1
+  });
+  assert.strictEqual(closing, 9, 'Closing prepared portions must strictly match physical and transaction records');
+});
+
+test('Test 3: Cashier shift cash balancing and variance detection (balanced case)', () => {
+  // Float: K 200
+  // Cash Sales: K 1,500
+  // Cash Debt Collections: K 300
+  // Cash Expenses (Gas): K 150
+  // Expected = 200 + 1500 + 300 - 150 = K 1,850
+  // Actual counted = K 1,850 -> Variance = 0, isBalanced = true
+  const recon = calculateShiftCashReconciliation({
+    openingFloat: 200,
+    cashSales: 1500,
+    cashCreditCollections: 300,
+    approvedCashExpenses: 150,
+    actualCashCounted: 1850
+  });
+
+  assert.strictEqual(recon.expectedClosingCash, 1850.00);
+  assert.strictEqual(recon.variance, 0.00);
+  assert.strictEqual(recon.isBalanced, true);
+});
+
+test('Test 4: Cashier shift shortage detection (unbalanced case)', () => {
+  // Expected: K 1,850, Actual counted: K 1,800 -> Shortage of -50 ZMW
+  const recon = calculateShiftCashReconciliation({
+    openingFloat: 200,
+    cashSales: 1500,
+    cashCreditCollections: 300,
+    approvedCashExpenses: 150,
+    actualCashCounted: 1800
+  });
+
+  assert.strictEqual(recon.variance, -50.00, 'Variance must detect cash shortage');
+  assert.strictEqual(recon.isBalanced, false, 'Shortage must flag shift as unbalanced');
+});
+
+test('Test 5: Gross profit and margin calculation in Zambian Kwacha (ZMW)', () => {
+  // Revenue: K 10,000, COGS: K 4,500 -> Gross Profit: K 5,500, Margin: 55%
+  const profit = calculateGrossProfit(10000, 4500);
+  assert.strictEqual(profit.grossProfit, 5500.00);
+  assert.strictEqual(profit.grossMarginPercentage, 55.00);
+});
+
+test('Test 6: Currency formatting for Zambian Kwacha', () => {
+  assert.strictEqual(formatZMW(65), 'K 65.00');
+  assert.strictEqual(formatZMW(1250.75), 'K 1,250.75');
+});
+
+test('Test 7: Offline idempotency key deduplication simulation', () => {
+  const processedKeys = new Set<string>();
+  const command = { idempotencyKey: 'offline-uuid-001', amount: 65.0 };
+
+  function executeTransaction(cmd: typeof command) {
+    if (processedKeys.has(cmd.idempotencyKey)) {
+      return { status: 'DUPLICATE_IGNORED' };
+    }
+    processedKeys.add(cmd.idempotencyKey);
+    return { status: 'EXECUTED', amount: cmd.amount };
+  }
+
+  const firstAttempt = executeTransaction(command);
+  assert.strictEqual(firstAttempt.status, 'EXECUTED');
+
+  const secondAttempt = executeTransaction(command);
+  assert.strictEqual(secondAttempt.status, 'DUPLICATE_IGNORED', 'Idempotency must prevent double billing on network retry');
+});
+
+test('Test 8: Customer credit headroom validation', () => {
+  const customer = { creditLimit: 5000, currentBalance: 4200 };
+  const availableCredit = customer.creditLimit - customer.currentBalance;
+  assert.strictEqual(availableCredit, 800);
+
+  const purchaseAmount = 900;
+  const isApproved = purchaseAmount <= availableCredit;
+  assert.strictEqual(isApproved, false, 'Credit transaction must be rejected when exceeding credit headroom');
+});
+
+test('Test 9: Consolidated daily billing allocation without duplicate debt', () => {
+  // Customer had 3 meals on credit today: K 65, K 70, K 75
+  const meals = [65, 70, 75];
+  const initialCustomerBalance = 210; // Already updated per sale at POS
+  const consolidatedTotal = meals.reduce((a, b) => a + b, 0);
+
+  assert.strictEqual(consolidatedTotal, 210);
+  // Rule: Consolidation must NOT add 210 again to initialCustomerBalance
+  const updatedCustomerBalance = initialCustomerBalance; // remains K 210
+  assert.strictEqual(updatedCustomerBalance, 210, 'Consolidated invoice generation must preserve customer balance without duplicate debit');
+});

@@ -1,0 +1,20 @@
+{
+  "name": "@lspot/mobile",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@lspot/shared": "workspace:*",
+    "@lspot/validation": "workspace:*",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.8.2"
+  }
+}
