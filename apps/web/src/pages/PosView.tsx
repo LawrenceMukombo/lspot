@@ -421,22 +421,22 @@ export function PosView() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-6.5rem)]">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:h-[calc(100vh-6.5rem)] min-h-[calc(100vh-6.5rem)]">
       {/* Left 2 Cols: Product Catalog & Touch Tiles */}
-      <div className="lg:col-span-2 flex flex-col space-y-4 h-full overflow-hidden">
+      <div className="lg:col-span-2 flex flex-col space-y-4 h-full min-h-0 overflow-hidden">
         {/* Cashier Shift Status Banner if not open */}
         {!activeShift && (
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs text-amber-300">
-            <div className="flex items-center gap-2">
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-2.5 flex items-center justify-between gap-2 text-xs text-amber-300 shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
               <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>
+              <span className="truncate">
                 <strong>Notice:</strong> No cashier shift is currently open. Cash movements will record under General Till.
               </span>
             </div>
             <button
               type="button"
               onClick={() => window.dispatchEvent(new CustomEvent('navigateTab', { detail: 'shifts' }))}
-              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg transition"
+              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg transition shrink-0 whitespace-nowrap"
             >
               Open Shift
             </button>
@@ -444,7 +444,7 @@ export function PosView() {
         )}
 
         {/* Search & Categories Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900 border border-slate-800 p-3.5 rounded-2xl shadow-lg">
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900 border border-slate-800 p-3.5 rounded-2xl shadow-lg shrink-0">
           <div className="flex items-center gap-2 overflow-x-auto pb-1 max-w-full">
             <button
               onClick={() => setActiveCategory('ALL')}
@@ -484,7 +484,8 @@ export function PosView() {
         </div>
 
         {/* Product Tiles Grid with High-Resolution Food Photography */}
-        <div className="flex-1 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 pr-1.5 pb-6">
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1.5 pb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 auto-rows-max content-start">
           {filteredItems.map((item) => {
             const isOutOfStock = !item.remainingPortions || item.remainingPortions <= 0;
             const isBeverage = (item as any).isBeverage ||
@@ -516,8 +517,8 @@ export function PosView() {
                     : 'border-slate-200 dark:border-slate-800 hover:border-amber-500/80 hover:shadow-2xl cursor-pointer group active:scale-[0.98]'
                 }`}
               >
-                {/* Dish Photo Container - Prominent, Rich Height */}
-                <div className="relative w-full h-44 sm:h-48 xl:h-52 bg-slate-950 overflow-hidden">
+                {/* Dish Photo Container - Prominent, Non-Shrinking Fixed Height */}
+                <div className="relative w-full h-44 sm:h-48 shrink-0 bg-slate-950 overflow-hidden">
                   {item.imageUrl ? (
                     <img
                       src={item.imageUrl}
@@ -591,12 +592,12 @@ export function PosView() {
                   </div>
 
                   {/* Price and Add Button Bar - High Visibility Selling Price */}
-                  <div className="mt-4 flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
-                    <div>
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                    <div className="min-w-0">
                       <span className="text-[11px] uppercase font-extrabold tracking-wider text-slate-400 dark:text-slate-400 block">
                         PRICE
                       </span>
-                      <span className="font-mono font-black text-amber-500 dark:text-amber-400 text-2xl sm:text-3xl tracking-tight drop-shadow-sm">
+                      <span className="font-mono font-black text-amber-500 dark:text-amber-400 text-xl sm:text-2xl tracking-tight drop-shadow-sm whitespace-nowrap">
                         {formatZMW(item.sellingPrice)}
                       </span>
                     </div>
@@ -604,7 +605,7 @@ export function PosView() {
                     <button
                       type="button"
                       disabled={isOutOfStock}
-                      className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-black text-sm shadow-lg shadow-amber-500/25 transition active:scale-95"
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-black text-xs sm:text-sm shadow-lg shadow-amber-500/25 transition active:scale-95 shrink-0 whitespace-nowrap"
                     >
                       <Plus className="w-4 h-4 stroke-[3]" />
                       <span>{isOutOfStock ? 'UNAVAILABLE' : 'ADD'}</span>
@@ -614,6 +615,7 @@ export function PosView() {
               </div>
             );
           })}
+          </div>
         </div>
       </div>
 
@@ -649,11 +651,11 @@ export function PosView() {
         </div>
 
         {/* Customer & Table Bar */}
-        <div className="p-3 border-b border-slate-800 bg-slate-900/50 flex gap-2">
+        <div className="p-3 border-b border-slate-800 bg-slate-900/50 flex gap-2 shrink-0">
           <select
             value={selectedCustomerId}
             onChange={(e) => setSelectedCustomerId(e.target.value)}
-            className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+            className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
           >
             <option value="">Walk-in Cash Customer</option>
             {customers.map((c) => (
@@ -667,7 +669,7 @@ export function PosView() {
             placeholder="Table #"
             value={tableNumber}
             onChange={(e) => setTableNumber(e.target.value)}
-            className="w-20 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+            className="w-20 shrink-0 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
           />
         </div>
 
