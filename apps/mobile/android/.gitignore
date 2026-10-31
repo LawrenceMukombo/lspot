@@ -1,7 +1,10 @@
 .gradle/
+.gradle-dist/
+gradle-8.5-bin.zip
 build/
 app/build/
 local.properties
 *.iml
 .idea/
 app/src/main/assets/public/
+

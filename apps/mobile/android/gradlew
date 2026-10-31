@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+set -e
+
+APP_HOME="$(cd "$(dirname "$0")" && pwd)"
+LOCAL_GRADLE_DIR="$APP_HOME/.gradle-dist/gradle-8.5"
+LOCAL_GRADLE_BIN="$LOCAL_GRADLE_DIR/bin/gradle"
+
+if [ ! -f "$LOCAL_GRADLE_BIN" ]; then
+  echo "[LSpot APK Builder] Downloading Gradle 8.5..."
+  mkdir -p "$APP_HOME/.gradle-dist"
+  curl -fsSL https://services.gradle.org/distributions/gradle-8.5-bin.zip -o "$APP_HOME/gradle-8.5-bin.zip"
+  unzip -q "$APP_HOME/gradle-8.5-bin.zip" -d "$APP_HOME/.gradle-dist"
+  rm -f "$APP_HOME/gradle-8.5-bin.zip"
+fi
+
+exec "$LOCAL_GRADLE_BIN" "$@"
