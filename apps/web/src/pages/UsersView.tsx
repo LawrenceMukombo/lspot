@@ -31,8 +31,10 @@ import {
   getUserBiometrics,
   removeUserBiometric,
   BiometricCredentialRecord,
-  isBiometricsSupported
+  isBiometricsSupported,
+  syncBiometricsFromServer
 } from '../utils/biometrics.js';
+import { BiometricScannerModal } from '../components/BiometricScannerModal.js';
 
 interface StaffUser {
   id: string;
@@ -217,6 +219,7 @@ export function UsersView() {
     isBiometricsSupported().then((res) => {
       setBiometricsHardwareAvailable(res.supported);
     });
+    syncBiometricsFromServer().catch(() => {});
   }, []);
 
   const loadBiometricsForUser = (userId: string) => {
@@ -278,27 +281,24 @@ export function UsersView() {
     }
 
     setIsRegisteringBiometric(type);
-    setBiometricStatusMsg({ text: `Prompting system sensor for ${type === 'face' ? 'Face recognition' : 'Thumbprint'}...` });
+    setBiometricStatusMsg({
+      text: `Opening ${type === 'face' ? 'Face ID Camera Scanner' : 'Thumbprint Sensor'} for ${editingUser.fullName}...`
+    });
+  };
 
-    try {
-      await registerBiometric(editingUser.id, editingUser.username, editingUser.fullName, type);
+  const handleBiometricRegistrationSuccess = (record: BiometricCredentialRecord) => {
+    setIsRegisteringBiometric(null);
+    if (editingUser) {
       loadBiometricsForUser(editingUser.id);
-      setBiometricStatusMsg({
-        text: `✓ ${type === 'face' ? 'Face ID' : 'Thumbprint'} successfully registered and linked!`
-      });
-      setTimeout(() => setBiometricStatusMsg(null), 4000);
-    } catch (err: any) {
-      console.warn('Biometric registration error:', err);
-      const isCancelled = err.name === 'NotAllowedError';
-      setBiometricStatusMsg({
-        error: true,
-        text: isCancelled
-          ? 'Sensor request was cancelled or timed out.'
-          : err.message || 'Hardware biometric registration failed.'
-      });
-    } finally {
-      setIsRegisteringBiometric(null);
     }
+    setBiometricStatusMsg({
+      text: `✓ ${record.type === 'face' ? 'Face ID' : 'Thumbprint'} successfully enrolled and synced for ${record.fullName}!`
+    });
+    toast.success(
+      `${record.type === 'face' ? 'Face Recognition' : 'Thumbprint'} enrolled and synced across terminals.`,
+      'Biometric Enrolled'
+    );
+    setTimeout(() => setBiometricStatusMsg(null), 5000);
   };
 
   const handleRemoveBiometric = (type: 'thumbprint' | 'face') => {
@@ -1202,6 +1202,27 @@ export function UsersView() {
           </div>
         </div>
       )}
+
+      {/* Interactive Biometric Enrollment Scanner Modal */}
+      <BiometricScannerModal
+        isOpen={isRegisteringBiometric !== null && editingUser !== null}
+        mode="register"
+        biometricType={isRegisteringBiometric || 'thumbprint'}
+        targetUser={
+          editingUser
+            ? {
+                id: editingUser.id,
+                username: editingUser.username,
+                fullName: editingUser.fullName
+              }
+            : undefined
+        }
+        onSuccess={handleBiometricRegistrationSuccess}
+        onClose={() => {
+          setIsRegisteringBiometric(null);
+          setBiometricStatusMsg(null);
+        }}
+      />
     </div>
   );
 }

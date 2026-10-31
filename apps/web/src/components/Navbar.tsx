@@ -19,11 +19,12 @@ import {
   CheckCircle2,
   Calculator
 } from 'lucide-react';
-import { apiRequest, logoutSession, setAuthSession } from '../api.js';
+import { apiRequest, logoutSession, setAuthSession, getOfflinePendingCount, syncAllOfflineData } from '../api.js';
 import { RESTAURANT_NAME, RESTAURANT_LOCATION } from '@lspot/shared';
 import { useTheme } from '../context/ThemeContext.js';
 import { SmartCalculator } from './SmartCalculator.js';
-import { authenticateBiometric } from '../utils/biometrics.js';
+import { BiometricScannerModal } from './BiometricScannerModal.js';
+import { BiometricCredentialRecord, loginWithBiometricSession } from '../utils/biometrics.js';
 
 interface NavbarProps {
   activeShift?: any;
@@ -46,6 +47,7 @@ export function Navbar({ activeShift }: NavbarProps) {
   const [isLocked, setIsLocked] = useState(false);
   const [enteredPin, setEnteredPin] = useState('');
   const [pinError, setPinError] = useState('');
+  const [lockBiometricType, setLockBiometricType] = useState<'thumbprint' | 'face' | null>(null);
   const [currentUser, setCurrentUser] = useState<any>(() => {
     try {
       const saved = localStorage.getItem('lspot_user_profile');
@@ -127,75 +129,78 @@ export function Navbar({ activeShift }: NavbarProps) {
     };
   }, []);
 
-  // Offline queue detection & listener
+  // Offline queue detection, listener & automatic 10-second multi-device cloud synchronization
   useEffect(() => {
     const checkOfflineQueue = () => {
-      try {
-        const queue = JSON.parse(localStorage.getItem('lspot_offline_sales_queue') || '[]');
-        setOfflineCount(queue.length);
-      } catch {
-        setOfflineCount(0);
-      }
+      setOfflineCount(getOfflinePendingCount());
     };
     checkOfflineQueue();
 
+    const runBackgroundSync = async () => {
+      if (!navigator.onLine) {
+        setIsOnline(false);
+        checkOfflineQueue();
+        return;
+      }
+      const res = await syncAllOfflineData();
+      setIsOnline(res.online);
+      setOfflineCount(res.remaining);
+      if (res.syncedSales > 0 || res.syncedMutations > 0) {
+        const totalSynced = res.syncedSales + res.syncedMutations;
+        setSyncFeedback(`Auto-synced ${totalSynced} record${totalSynced === 1 ? '' : 's'}`);
+        setTimeout(() => setSyncFeedback(null), 3500);
+        fetchShift();
+      }
+    };
+
     const handleOnline = () => {
       setIsOnline(true);
-      handleSyncOfflineQueue();
+      runBackgroundSync();
     };
-    const handleOffline = () => setIsOnline(false);
+    const handleOffline = () => {
+      setIsOnline(false);
+      checkOfflineQueue();
+    };
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     window.addEventListener('offlineQueueUpdated', checkOfflineQueue);
 
+    // Synchronize automatically every 10 seconds across Web & Android terminals
+    const autoSyncTimer = setInterval(runBackgroundSync, 10000);
+    runBackgroundSync();
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('offlineQueueUpdated', checkOfflineQueue);
+      clearInterval(autoSyncTimer);
     };
   }, []);
 
   const handleSyncOfflineQueue = async () => {
-    const queue = JSON.parse(localStorage.getItem('lspot_offline_sales_queue') || '[]');
-    if (queue.length === 0) {
-      setSyncFeedback('All sales are synchronized');
-      setTimeout(() => setSyncFeedback(null), 2500);
-      return;
-    }
-
+    const pendingBefore = getOfflinePendingCount();
     setIsSyncing(true);
-    setSyncFeedback(`Syncing ${queue.length} cached sales...`);
+    setSyncFeedback(
+      pendingBefore > 0 ? `Syncing ${pendingBefore} offline item(s)...` : 'Verifying cloud sync...'
+    );
 
     try {
-      const failedItems: any[] = [];
-      let syncedCount = 0;
+      const res = await syncAllOfflineData();
+      setIsOnline(res.online);
+      setOfflineCount(res.remaining);
+      const totalSynced = res.syncedSales + res.syncedMutations;
 
-      // Replay offline sales through backend, preserving any failed records
-      for (const entry of queue) {
-        const salePayload = entry && typeof entry === 'object' && 'payload' in entry ? entry.payload : entry;
-        try {
-          await apiRequest('/pos/checkout', {
-            method: 'POST',
-            body: JSON.stringify(salePayload)
-          });
-          syncedCount++;
-        } catch (e: any) {
-          console.warn('Replay queued item failed; retaining in offline queue:', e);
-          failedItems.push({
-            ...(entry && typeof entry === 'object' && 'payload' in entry
-              ? { ...entry, retryCount: (entry.retryCount || 0) + 1, lastError: e?.message }
-              : { id: salePayload?.idempotencyKey || `offline-${Date.now()}`, createdAt: new Date().toISOString(), payload: salePayload, retryCount: 1, lastError: e?.message })
-          });
-        }
-      }
-
-      localStorage.setItem('lspot_offline_sales_queue', JSON.stringify(failedItems));
-      setOfflineCount(failedItems.length);
-      if (failedItems.length === 0) {
-        setSyncFeedback(`Cloud sync complete: ${syncedCount} synced, 0 pending`);
+      if (!res.online) {
+        setSyncFeedback('Offline Mode: records safely queued on device');
+      } else if (res.remaining === 0) {
+        setSyncFeedback(
+          totalSynced > 0
+            ? `Cloud sync complete: ${totalSynced} synced, 0 pending`
+            : 'All data synchronized with cloud'
+        );
       } else {
-        setSyncFeedback(`Synced ${syncedCount}; ${failedItems.length} retained for retry`);
+        setSyncFeedback(`Synced ${totalSynced}; ${res.remaining} retained for retry`);
       }
       setTimeout(() => setSyncFeedback(null), 3500);
       window.dispatchEvent(new CustomEvent('shiftUpdated'));
@@ -287,30 +292,22 @@ export function Navbar({ activeShift }: NavbarProps) {
     }
   };
 
-  const handleBiometricAuth = async (type: 'thumbprint' | 'face' = 'thumbprint') => {
+  const handleBiometricAuth = (type: 'thumbprint' | 'face' = 'thumbprint') => {
     setPinError('');
+    setLockBiometricType(type);
+  };
+
+  const handleLockBiometricSuccess = async (record: BiometricCredentialRecord) => {
+    setLockBiometricType(null);
     try {
-      const result = await authenticateBiometric(undefined, type);
-      if (result && result.success) {
-        if (result.userId && result.userName) {
-          setCurrentUser((prev: any) => ({
-            ...prev,
-            id: result.userId,
-            username: result.userName,
-            fullName: result.userFullName
-          }));
-        }
-        setIsLocked(false);
-        setEnteredPin('');
-        setPinError('');
-      }
+      const session = await loginWithBiometricSession(record);
+      setAuthSession(session.token, session.user);
+      setCurrentUser(session.user);
+      setIsLocked(false);
+      setEnteredPin('');
+      setPinError('');
     } catch (err: any) {
-      console.warn('Biometric authentication failed:', err);
-      // Informative user-facing feedback with clean explanation
-      const msg = err.name === 'NotAllowedError'
-        ? 'Biometric prompt was cancelled or timed out.'
-        : err.message || 'Biometric recognition failed.';
-      setPinError(msg);
+      setPinError(err?.message || 'Biometric unlock failed.');
     }
   };
 
@@ -617,6 +614,15 @@ export function Navbar({ activeShift }: NavbarProps) {
           </div>
         </div>
       )}
+
+      {/* Biometric Scanner Modal for Lock Screen */}
+      <BiometricScannerModal
+        isOpen={lockBiometricType !== null}
+        mode="authenticate"
+        biometricType={lockBiometricType || 'thumbprint'}
+        onSuccess={handleLockBiometricSuccess}
+        onClose={() => setLockBiometricType(null)}
+      />
 
       {/* Intelligent Restaurant Calculator Modal */}
       <SmartCalculator

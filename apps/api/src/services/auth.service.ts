@@ -470,6 +470,173 @@ export class AuthService {
       select: { id: true, username: true, fullName: true }
     });
   }
+
+  private biometricRegistryKey(tenantId: string) {
+    return `biometric_credentials_registry_${tenantId}`;
+  }
+
+  async getBiometricRegistry(tenantId: string = DEFAULT_TENANT_ID): Promise<any[]> {
+    await this.ensureBootstrapUsers();
+    try {
+      const record = await prisma.syncCommand.findUnique({
+        where: { idempotencyKey: this.biometricRegistryKey(tenantId) }
+      });
+      if (record && Array.isArray(record.payload)) {
+        return record.payload as any[];
+      }
+    } catch (e) {
+      console.warn('Error reading biometric registry from DB:', e);
+    }
+    return [];
+  }
+
+  async registerBiometricCredential(
+    tenantId: string = DEFAULT_TENANT_ID,
+    record: {
+      credentialId: string;
+      userId: string;
+      username: string;
+      fullName: string;
+      type: 'thumbprint' | 'face';
+      deviceLabel?: string;
+      publicKey?: string;
+    }
+  ) {
+    await this.ensureBootstrapUsers();
+    const existing = await this.getBiometricRegistry(tenantId);
+    const filtered = existing.filter(
+      (item: any) =>
+        !(item.userId === record.userId && item.type === record.type) &&
+        item.credentialId !== record.credentialId
+    );
+    const entry = {
+      credentialId: record.credentialId,
+      userId: record.userId,
+      username: record.username,
+      fullName: record.fullName,
+      type: record.type,
+      deviceLabel: record.deviceLabel || (record.type === 'face' ? 'Face ID Camera / Sensor' : 'Thumbprint Sensor'),
+      publicKey: record.publicKey || '',
+      registeredAt: new Date().toISOString()
+    };
+    filtered.push(entry);
+
+    const key = this.biometricRegistryKey(tenantId);
+    await prisma.syncCommand.upsert({
+      where: { idempotencyKey: key },
+      update: { payload: filtered as any, processedAt: new Date() },
+      create: {
+        deviceId: 'biometric-registry',
+        idempotencyKey: key,
+        commandType: 'BIOMETRIC_REGISTRY',
+        payload: filtered as any,
+        status: 'PROCESSED',
+        clientTime: new Date()
+      }
+    });
+
+    return entry;
+  }
+
+  async removeBiometricCredential(
+    tenantId: string = DEFAULT_TENANT_ID,
+    userId: string,
+    type: 'thumbprint' | 'face'
+  ) {
+    const existing = await this.getBiometricRegistry(tenantId);
+    const filtered = existing.filter(
+      (item: any) => !(item.userId === userId && item.type === type)
+    );
+    const key = this.biometricRegistryKey(tenantId);
+    await prisma.syncCommand.upsert({
+      where: { idempotencyKey: key },
+      update: { payload: filtered as any, processedAt: new Date() },
+      create: {
+        deviceId: 'biometric-registry',
+        idempotencyKey: key,
+        commandType: 'BIOMETRIC_REGISTRY',
+        payload: filtered as any,
+        status: 'PROCESSED',
+        clientTime: new Date()
+      }
+    });
+    return { removed: true, remaining: filtered.length };
+  }
+
+  async loginWithBiometric(data: {
+    credentialId?: string;
+    userId?: string;
+    username?: string;
+    type?: 'thumbprint' | 'face';
+    tenantId?: string;
+  }) {
+    await this.ensureBootstrapUsers();
+    const targetTenantId = data.tenantId || DEFAULT_TENANT_ID;
+    const registry = await this.getBiometricRegistry(targetTenantId);
+
+    let matchedRecord: any = null;
+    if (data.credentialId) {
+      matchedRecord = registry.find((r: any) => r.credentialId === data.credentialId);
+    }
+    if (!matchedRecord && data.userId) {
+      matchedRecord = registry.find(
+        (r: any) => r.userId === data.userId && (!data.type || r.type === data.type)
+      );
+    }
+
+    const lookupUserId = matchedRecord?.userId || data.userId;
+    const lookupUsername = matchedRecord?.username || data.username;
+
+    let user = null;
+    if (lookupUserId) {
+      user = await prisma.user.findFirst({
+        where: { id: lookupUserId, isActive: true },
+        include: { tenant: true }
+      });
+    }
+    if (!user && lookupUsername) {
+      user = await prisma.user.findFirst({
+        where: {
+          username: { equals: String(lookupUsername).trim(), mode: 'insensitive' },
+          isActive: true
+        },
+        include: { tenant: true }
+      });
+    }
+
+    if (!user) {
+      throw new Error('Biometric profile could not be matched to an active staff account.');
+    }
+
+    const payload = {
+      id: user.id,
+      tenantId: user.tenantId,
+      branchId: user.branchId || '',
+      username: user.username,
+      fullName: user.fullName,
+      role: user.role as UserRole
+    };
+
+    const token = jwt.sign(payload, getJwtSecret(), { expiresIn: '1d' });
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() }
+    });
+
+    return {
+      token,
+      biometricType: data.type || matchedRecord?.type || 'thumbprint',
+      user: {
+        id: user.id,
+        username: user.username,
+        fullName: user.fullName,
+        role: user.role,
+        tenantId: user.tenantId,
+        tenantName: user.tenant.name
+      }
+    };
+  }
 }
 
 export const authService = new AuthService();

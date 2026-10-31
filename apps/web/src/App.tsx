@@ -1,12 +1,15 @@
 import React, { useState, useEffect, Suspense } from 'react';
-import { UtensilsCrossed, Lock, KeyRound, UserCheck } from 'lucide-react';
+import { UtensilsCrossed, Lock, KeyRound, UserCheck, Fingerprint, ScanFace } from 'lucide-react';
 import { Navbar } from './components/Navbar.js';
 import { Sidebar, NavTab } from './components/Sidebar.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
-import { ToastViewport } from './components/Toast.js';
+import { ToastViewport, toast } from './components/Toast.js';
 import { ThemeProvider } from './context/ThemeContext.js';
-import { apiRequest, setAuthSession } from './api.js';
+import { apiRequest, setAuthSession, getAuthToken, syncAllOfflineData } from './api.js';
 import { RESTAURANT_NAME, RESTAURANT_LOCATION } from '@lspot/shared';
+import { SplashScreen } from './components/SplashScreen.js';
+import { BiometricScannerModal } from './components/BiometricScannerModal.js';
+import { BiometricCredentialRecord, loginWithBiometricSession, syncBiometricsFromServer } from './utils/biometrics.js';
 
 import { DashboardView } from './pages/DashboardView.js';
 import { PosView } from './pages/PosView.js';
@@ -23,16 +26,26 @@ import { UsersView } from './pages/UsersView.js';
 import { SettingsView } from './pages/SettingsView.js';
 
 export function App() {
+  const [showSplash, setShowSplash] = useState<boolean>(() => {
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('lspot_splash_seen') === '1') {
+      return false;
+    }
+    return true;
+  });
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() =>
-    Boolean(localStorage.getItem('lspot_auth_token'))
-  );
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => Boolean(getAuthToken()));
   const [loginMode, setLoginMode] = useState<'credentials' | 'pin'>('credentials');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [pin, setPin] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [biometricModalType, setBiometricModalType] = useState<'thumbprint' | 'face' | null>(null);
+
+  useEffect(() => {
+    syncBiometricsFromServer().catch(() => {});
+    syncAllOfflineData().catch(() => {});
+  }, []);
 
   useEffect(() => {
     const onAuthRequired = () => setIsAuthenticated(false);
@@ -161,10 +174,45 @@ export function App() {
     }
   };
 
+  const handleBiometricLoginSuccess = async (record: BiometricCredentialRecord) => {
+    setBiometricModalType(null);
+    setAuthError(null);
+    setIsSubmitting(true);
+    try {
+      const session = await loginWithBiometricSession(record);
+      setAuthSession(session.token, session.user);
+      toast.success(
+        `Welcome back, ${session.user.fullName || record.fullName}!`,
+        record.type === 'face' ? 'Face ID Verified' : 'Thumbprint Verified'
+      );
+    } catch (err: any) {
+      setAuthError(err?.message || 'Biometric login failed.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCompleteSplash = () => {
+    try {
+      sessionStorage.setItem('lspot_splash_seen', '1');
+    } catch {
+      // Ignore storage error
+    }
+    setShowSplash(false);
+  };
+
   if (!isAuthenticated) {
     return (
       <ThemeProvider>
+        {showSplash && <SplashScreen onComplete={handleCompleteSplash} />}
         <ToastViewport />
+        <BiometricScannerModal
+          isOpen={biometricModalType !== null}
+          mode="authenticate"
+          biometricType={biometricModalType || 'thumbprint'}
+          onSuccess={handleBiometricLoginSuccess}
+          onClose={() => setBiometricModalType(null)}
+        />
         <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans">
           <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-7 shadow-2xl space-y-6">
             <div className="text-center space-y-2">
@@ -270,6 +318,37 @@ export function App() {
                 <span>{isSubmitting ? 'Signing In...' : 'Sign In to Terminal'}</span>
               </button>
             </form>
+
+            {/* Biometric Sign-In Bar (Thumbprint & Face Recognition) */}
+            <div className="pt-3 border-t border-slate-800/80 space-y-2.5">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 text-center">
+                Or Instant Biometric Sign-In
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthError(null);
+                    setBiometricModalType('thumbprint');
+                  }}
+                  className="py-2.5 px-3 rounded-xl bg-slate-950 hover:bg-slate-800 border border-amber-500/30 text-amber-400 font-bold text-xs flex items-center justify-center gap-2 transition shadow-sm"
+                >
+                  <Fingerprint className="w-4 h-4" />
+                  <span>Thumbprint</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthError(null);
+                    setBiometricModalType('face');
+                  }}
+                  className="py-2.5 px-3 rounded-xl bg-slate-950 hover:bg-slate-800 border border-amber-500/30 text-amber-400 font-bold text-xs flex items-center justify-center gap-2 transition shadow-sm"
+                >
+                  <ScanFace className="w-4 h-4" />
+                  <span>Face Unlock</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </ThemeProvider>
@@ -278,6 +357,7 @@ export function App() {
 
   return (
     <ThemeProvider>
+      {showSplash && <SplashScreen onComplete={handleCompleteSplash} />}
       <ToastViewport />
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans transition-colors duration-200">
         <Navbar />

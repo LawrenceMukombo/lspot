@@ -174,3 +174,75 @@ authRouter.get('/me', authenticate, async (req: RequestWithUser, res: Response) 
     data: req.user
   });
 });
+
+authRouter.get('/biometrics', async (_req: RequestWithUser, res: Response) => {
+  try {
+    const list = await authService.getBiometricRegistry();
+    return res.json({ success: true, data: list });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+authRouter.post('/biometric-register', authenticate, async (req: RequestWithUser, res: Response) => {
+  try {
+    const { credentialId, userId, username, fullName, type, deviceLabel, publicKey } = req.body || {};
+    if (!credentialId || !userId || !type) {
+      return res.status(400).json({
+        success: false,
+        message: 'credentialId, userId, and type are required for biometric registration.'
+      });
+    }
+    const saved = await authService.registerBiometricCredential(req.user!.tenantId, {
+      credentialId,
+      userId,
+      username: username || req.user!.username,
+      fullName: fullName || req.user!.fullName,
+      type,
+      deviceLabel,
+      publicKey
+    });
+    return res.status(201).json({
+      success: true,
+      message: `${type === 'face' ? 'Face ID' : 'Thumbprint'} registered successfully.`,
+      data: saved
+    });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+authRouter.delete('/biometrics/:userId/:type', authenticate, async (req: RequestWithUser, res: Response) => {
+  try {
+    const userId = Array.isArray(req.params.userId) ? req.params.userId[0] : req.params.userId;
+    const type = (Array.isArray(req.params.type) ? req.params.type[0] : req.params.type) as 'thumbprint' | 'face';
+    const result = await authService.removeBiometricCredential(req.user!.tenantId, userId, type);
+    return res.json({ success: true, data: result });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+authRouter.post('/biometric-login', async (req: RequestWithUser, res: Response) => {
+  try {
+    const { credentialId, userId, username, type } = (req.body as any) || {};
+    if (!credentialId && !userId && !username) {
+      return res.status(400).json({
+        success: false,
+        message: 'Biometric credential or user identifier is required.'
+      });
+    }
+    const result = await authService.loginWithBiometric({ credentialId, userId, username, type });
+    return res.json({
+      success: true,
+      message: `Authenticated via ${result.biometricType === 'face' ? 'Face Recognition' : 'Thumbprint'}`,
+      data: result
+    });
+  } catch (err: any) {
+    return res.status(401).json({
+      success: false,
+      message: err.message || 'Biometric authentication failed',
+      code: 'BIOMETRIC_AUTH_FAILED'
+    });
+  }
+});
