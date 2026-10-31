@@ -92,7 +92,7 @@ kitchenRouter.post(
         });
       }
 
-      const waste = await kitchenService.recordWaste(parsed.data);
+      const waste = await kitchenService.recordWaste(req.user!.tenantId, parsed.data);
       return res.json({ success: true, message: 'Kitchen waste recorded', data: waste });
     } catch (err: any) {
       return res.status(400).json({ success: false, message: err.message });
@@ -116,6 +116,7 @@ kitchenRouter.post(
       }
 
       const closed = await kitchenService.closeRegister(
+        req.user!.tenantId,
         parsed.data.registerId,
         parsed.data.supervisorPin,
         parsed.data.itemsClosing

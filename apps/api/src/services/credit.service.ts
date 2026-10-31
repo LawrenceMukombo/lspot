@@ -38,9 +38,37 @@ export class CreditService {
     });
   }
 
-  async getCustomerLedger(customerId: string) {
-    const customer = await prisma.customer.findUnique({
-      where: { id: customerId },
+  async updateCustomer(tenantId: string, id: string, data: any) {
+    const existing = await prisma.customer.findFirst({ where: { id, tenantId } });
+    if (!existing) throw new Error('Customer not found');
+
+    const updateData: any = {};
+    for (const key of ['name', 'customerType', 'phone', 'tpin', 'address'] as const) {
+      if (data[key] !== undefined) updateData[key] = data[key] || null;
+    }
+    if (data.email !== undefined) updateData.email = data.email || null;
+    if (data.creditLimit !== undefined) updateData.creditLimit = Number(data.creditLimit);
+    if (data.paymentTermsDays !== undefined) updateData.paymentTermsDays = Number(data.paymentTermsDays);
+    if (updateData.name === null) delete updateData.name;
+    if (updateData.phone === null) delete updateData.phone;
+    if (updateData.customerType === null) delete updateData.customerType;
+
+    return prisma.customer.update({ where: { id: existing.id }, data: updateData });
+  }
+
+  async deactivateCustomer(tenantId: string, id: string) {
+    const customer = await prisma.customer.findFirst({ where: { id, tenantId } });
+    if (!customer) throw new Error('Customer not found');
+    if (Number(customer.currentBalance) > 0) {
+      throw new Error('Cannot deactivate a customer with an outstanding balance. Settle the account first.');
+    }
+    // Soft delete only — preserves credit history and audit trail
+    return prisma.customer.update({ where: { id: customer.id }, data: { isActive: false } });
+  }
+
+  async getCustomerLedger(tenantId: string, customerId: string) {
+    const customer = await prisma.customer.findFirst({
+      where: { id: customerId, tenantId },
       include: {
         sales: {
           where: { paymentStatus: 'CREDIT' },
@@ -58,8 +86,8 @@ export class CreditService {
   }
 
   async recordCustomerPayment(tenantId: string, data: any) {
-    const customer = await prisma.customer.findUnique({
-      where: { id: data.customerId }
+    const customer = await prisma.customer.findFirst({
+      where: { id: data.customerId, tenantId }
     });
 
     if (!customer) {
@@ -79,6 +107,7 @@ export class CreditService {
       // Find unpaid or partially paid invoices to allocate
       const unpaidInvoices = await tx.invoice.findMany({
         where: {
+          tenantId,
           customerId: customer.id,
           status: { in: ['ISSUED', 'PARTIALLY_PAID', 'OVERDUE'] }
         },
@@ -127,6 +156,31 @@ export class CreditService {
             receivedAt: new Date()
           }
         });
+      }
+
+      // Update active CashierShift if credit repayment was received in CASH
+      if (data.paymentMethod === PaymentMethod.CASH) {
+        const activeShift = await tx.cashierShift.findFirst({
+          where: { tenantId, status: 'OPEN' },
+          orderBy: { startedAt: 'desc' }
+        });
+        if (activeShift) {
+          const newCreditCollections = roundTo2Decimals(Number(activeShift.cashCreditCollections) + payAmount);
+          const newExpected = roundTo2Decimals(
+            Number(activeShift.openingFloat) +
+            Number(activeShift.cashSales) +
+            newCreditCollections -
+            Number(activeShift.cashExpenses) -
+            Number(activeShift.cashWithdrawals)
+          );
+          await tx.cashierShift.update({
+            where: { id: activeShift.id },
+            data: {
+              cashCreditCollections: newCreditCollections,
+              expectedCash: newExpected
+            }
+          });
+        }
       }
 
       return {

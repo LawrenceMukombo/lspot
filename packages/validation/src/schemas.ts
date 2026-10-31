@@ -33,36 +33,37 @@ export const UpdateRestaurantProfileSchema = z.object({
 // Menu Schemas
 export const CreateMenuItemSchema = z.object({
   name: z.string().min(2, 'Name is required'),
-  description: z.string().optional(),
-  categoryId: z.string().uuid('Valid Category ID is required'),
+  description: z.string().optional().nullable(),
+  imageUrl: z.string().optional().nullable(),
+  categoryId: z.string().min(1, 'Category is required'),
   sellingPrice: z.number().positive('Selling price must be positive'),
   portionSize: z.string().min(1, 'Portion size is required (e.g., Single, Double, 1/4 Chicken)'),
-  recipeId: z.string().uuid().optional(),
+  recipeId: z.string().min(1).optional().nullable(),
   isAvailable: z.boolean().default(true),
-  sku: z.string().optional()
+  sku: z.string().optional().nullable()
 });
 
 export const UpdateMenuItemSchema = CreateMenuItemSchema.partial();
 
 // Recipe Schemas
 export const RecipeIngredientSchema = z.object({
-  stockItemId: z.string().uuid(),
+  stockItemId: z.string().min(1),
   quantity: z.number().positive('Quantity must be greater than zero'),
   unitOfMeasure: z.nativeEnum(UnitOfMeasure),
   lossPercentage: z.number().min(0).max(100).default(0)
 });
 
 export const CreateRecipeSchema = z.object({
-  menuItemId: z.string().uuid(),
+  menuItemId: z.string().min(1),
   name: z.string().min(2),
   batchQuantity: z.number().positive(),
   expectedPortionYield: z.number().int().positive(),
-  instructions: z.string().optional(),
+  instructions: z.string().optional().nullable(),
   ingredients: z.array(RecipeIngredientSchema).min(1, 'At least one ingredient is required')
 });
 
 export const ScaleRecipeSchema = z.object({
-  recipeId: z.string().uuid(),
+  recipeId: z.string().min(1),
   targetPortions: z.number().int().positive('Target portions must be a positive integer')
 });
 
@@ -75,66 +76,68 @@ export const CreateStockItemSchema = z.object({
   reorderLevel: z.number().min(0).default(5),
   initialQuantity: z.number().min(0).default(0),
   unitCost: z.number().min(0).default(0),
-  locationId: z.string().uuid().optional()
+  locationId: z.string().min(1).optional().nullable()
 });
 
+export const UpdateStockItemSchema = CreateStockItemSchema.partial();
+
 export const StockReceiptSchema = z.object({
-  stockItemId: z.string().uuid(),
-  destinationLocationId: z.string().uuid(),
+  stockItemId: z.string().min(1),
+  destinationLocationId: z.string().min(1).optional().nullable(),
   quantity: z.number().positive('Quantity must be greater than zero'),
   unitCost: z.number().positive('Unit cost must be greater than zero'),
-  supplierId: z.string().uuid().optional(),
-  invoiceReference: z.string().optional(),
-  batchLotNumber: z.string().optional(),
-  expiryDate: z.string().optional(),
-  notes: z.string().optional()
+  supplierId: z.string().min(1).optional().nullable(),
+  invoiceReference: z.string().optional().nullable(),
+  batchLotNumber: z.string().optional().nullable(),
+  expiryDate: z.string().optional().nullable(),
+  notes: z.string().optional().nullable()
 });
 
 export const StockTransferSchema = z.object({
-  stockItemId: z.string().uuid(),
-  sourceLocationId: z.string().uuid(),
-  destinationLocationId: z.string().uuid(),
+  stockItemId: z.string().min(1),
+  sourceLocationId: z.string().min(1),
+  destinationLocationId: z.string().min(1),
   quantity: z.number().positive('Quantity must be positive'),
-  notes: z.string().optional()
+  notes: z.string().optional().nullable()
 });
 
 export const StockAdjustmentSchema = z.object({
-  stockItemId: z.string().uuid(),
-  locationId: z.string().uuid(),
+  stockItemId: z.string().min(1),
+  locationId: z.string().min(1).optional().nullable(),
   countedQuantity: z.number().min(0),
-  reason: z.string().min(5, 'Reason for adjustment is required'),
+  reason: z.string().min(3, 'Reason for adjustment is required'),
   supervisorPin: z.string().regex(/^\d{4,6}$/)
 });
 
 // Kitchen Production Schemas
 export const OpenKitchenRegisterSchema = z.object({
   businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date format must be YYYY-MM-DD'),
-  notes: z.string().optional()
+  notes: z.string().optional().nullable()
 });
 
 export const KitchenIssueRequestSchema = z.object({
-  registerId: z.string().uuid(),
+  registerId: z.string().min(1),
   items: z.array(
     z.object({
-      stockItemId: z.string().uuid(),
+      stockItemId: z.string().min(1),
       requestedQuantity: z.number().positive(),
       unitOfMeasure: z.nativeEnum(UnitOfMeasure)
     })
   ).min(1),
-  chefNotes: z.string().optional()
+  chefNotes: z.string().optional().nullable()
 });
 
 export const RecordProductionBatchSchema = z.object({
-  registerId: z.string().uuid(),
-  menuItemId: z.string().uuid(),
+  registerId: z.string().min(1),
+  menuItemId: z.string().min(1),
   plannedPortions: z.number().int().positive(),
   actualPreparedPortions: z.number().int().positive(),
-  notes: z.string().optional()
+  notes: z.string().optional().nullable()
 });
 
 export const RecordKitchenWasteSchema = z.object({
-  registerId: z.string().uuid(),
-  menuItemId: z.string().uuid(),
+  registerId: z.string().min(1),
+  menuItemId: z.string().min(1),
   portionsWasted: z.number().int().positive(),
   wasteReason: z.string().min(3),
   isStaffMeal: z.boolean().default(false),
@@ -142,12 +145,12 @@ export const RecordKitchenWasteSchema = z.object({
 });
 
 export const CloseKitchenRegisterSchema = z.object({
-  registerId: z.string().uuid(),
+  registerId: z.string().min(1),
   itemsClosing: z.array(
     z.object({
-      menuItemId: z.string().uuid(),
+      menuItemId: z.string().min(1),
       actualCountedPortions: z.number().int().min(0),
-      reasonForVariance: z.string().optional()
+      reasonForVariance: z.string().optional().nullable()
     })
   ),
   supervisorPin: z.string().regex(/^\d{4,6}$/)
@@ -155,18 +158,19 @@ export const CloseKitchenRegisterSchema = z.object({
 
 // POS & Sales Schemas
 export const CartItemSchema = z.object({
-  menuItemId: z.string().uuid(),
-  portionSize: z.string(),
+  menuItemId: z.string().min(1),
+  portionSize: z.string().optional().default('Standard Portion'),
   unitPrice: z.number().positive(),
   quantity: z.number().int().positive(),
-  notes: z.string().optional()
+  subtotal: z.number().optional(),
+  notes: z.string().optional().nullable()
 });
 
 export const PosCheckoutSchema = z.object({
-  idempotencyKey: z.string().uuid(),
-  customerId: z.string().uuid().optional(),
+  idempotencyKey: z.string().min(1),
+  customerId: z.string().optional().nullable(),
   orderType: z.enum(['DINE_IN', 'TAKEAWAY']).default('DINE_IN'),
-  tableNumber: z.string().optional(),
+  tableNumber: z.string().optional().nullable(),
   items: z.array(CartItemSchema).min(1, 'Cart cannot be empty'),
   subtotal: z.number().positive(),
   discountAmount: z.number().min(0).default(0),
@@ -175,8 +179,8 @@ export const PosCheckoutSchema = z.object({
     z.object({
       method: z.nativeEnum(PaymentMethod),
       amount: z.number().positive(),
-      reference: z.string().optional(),
-      notes: z.string().optional()
+      reference: z.string().optional().nullable(),
+      notes: z.string().optional().nullable()
     })
   ).min(1, 'At least one payment entry is required')
 });
@@ -186,43 +190,45 @@ export const CreateCustomerSchema = z.object({
   name: z.string().min(2, 'Customer name is required'),
   customerType: z.nativeEnum(CustomerType),
   phone: z.string().min(5, 'Valid phone number is required'),
-  email: z.string().email().optional().or(z.literal('')),
-  tpin: z.string().optional(),
+  email: z.string().email().optional().or(z.literal('')).nullable(),
+  tpin: z.string().optional().nullable(),
   creditLimit: z.number().min(0).default(0),
   paymentTermsDays: z.number().int().min(0).default(30),
-  address: z.string().optional()
+  address: z.string().optional().nullable()
 });
 
+export const UpdateCustomerSchema = CreateCustomerSchema.partial();
+
 export const CustomerPaymentSchema = z.object({
-  customerId: z.string().uuid(),
+  customerId: z.string().min(1),
   amount: z.number().positive('Payment amount must be greater than zero'),
   paymentMethod: z.nativeEnum(PaymentMethod),
-  reference: z.string().optional(),
-  notes: z.string().optional()
+  reference: z.string().optional().nullable(),
+  notes: z.string().optional().nullable()
 });
 
 // Cashier Shift Schemas
 export const OpenShiftSchema = z.object({
   openingFloat: z.number().min(0, 'Opening float cannot be negative'),
-  notes: z.string().optional()
+  notes: z.string().optional().nullable()
 });
 
 export const CloseShiftSchema = z.object({
-  shiftId: z.string().uuid(),
+  shiftId: z.string().min(1),
   actualCashCounted: z.number().min(0),
   cashBreakdown: z.record(z.string(), z.number()).optional(),
-  varianceExplanation: z.string().optional(),
+  varianceExplanation: z.string().optional().nullable(),
   supervisorPin: z.string().regex(/^\d{4,6}$/).optional()
 });
 
 // Operating Expenses
 export const CreateExpenseSchema = z.object({
-  categoryId: z.string().uuid(),
+  categoryId: z.string().min(1),
   amount: z.number().positive('Amount must be positive'),
   payee: z.string().min(2, 'Payee is required'),
   description: z.string().min(3, 'Description is required'),
   paymentMethod: z.nativeEnum(PaymentMethod).default(PaymentMethod.CASH),
-  receiptNumber: z.string().optional()
+  receiptNumber: z.string().optional().nullable()
 });
 
 // Offline Outbox Sync Schema

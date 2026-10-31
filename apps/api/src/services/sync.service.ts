@@ -33,7 +33,7 @@ export class SyncService {
         } else if (cmd.commandType === 'KITCHEN_BATCH') {
           actionResult = await kitchenService.recordProductionBatch(tenantId, cashierId, cmd.payload);
         } else if (cmd.commandType === 'KITCHEN_WASTE') {
-          actionResult = await kitchenService.recordWaste(cmd.payload);
+          actionResult = await kitchenService.recordWaste(tenantId, cmd.payload);
         } else if (cmd.commandType === 'STOCK_RECEIPT') {
           actionResult = await inventoryService.receiveStock(tenantId, cmd.payload);
         }

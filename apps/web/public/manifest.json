@@ -1,0 +1,22 @@
+{
+  "short_name": "LSpot POS",
+  "name": "The LSpot Restaurant Enterprise POS",
+  "description": "Mobile-first, offline-capable restaurant management and touch POS for Manyama, Zambia",
+  "icons": [
+    {
+      "src": "/images/food/nshima_chicken.jpg",
+      "type": "image/jpeg",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/images/food/nshima_chicken.jpg",
+      "type": "image/jpeg",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#020617",
+  "theme_color": "#f59e0b",
+  "display": "standalone",
+  "orientation": "any"
+}

@@ -23,6 +23,7 @@ export class MenuService {
     const items = await prisma.menuItem.findMany({
       where: {
         tenantId,
+        status: { not: 'ARCHIVED' },
         ...(categoryId ? { categoryId } : {})
       },
       include: {
@@ -58,6 +59,7 @@ export class MenuService {
         branchId,
         name: data.name,
         description: data.description,
+        imageUrl: data.imageUrl,
         categoryId: data.categoryId,
         sellingPrice: data.sellingPrice,
         portionSize: data.portionSize || 'Single Portion',
@@ -68,10 +70,34 @@ export class MenuService {
     });
   }
 
-  async updateMenuItem(id: string, data: any) {
+  async updateMenuItem(tenantId: string, id: string, data: any) {
+    const existing = await prisma.menuItem.findFirst({ where: { id, tenantId } });
+    if (!existing) {
+      throw new Error('Menu item not found');
+    }
+
+    const updateData: any = {};
+    for (const key of ['name', 'description', 'imageUrl', 'categoryId', 'portionSize', 'sku', 'isAvailable'] as const) {
+      if (data[key] !== undefined && data[key] !== null) updateData[key] = data[key];
+    }
+    if (data.sellingPrice !== undefined) updateData.sellingPrice = Number(data.sellingPrice);
     return prisma.menuItem.update({
-      where: { id },
-      data
+      where: { id: existing.id },
+      data: updateData,
+      include: { category: true }
+    });
+  }
+
+  // Soft delete: retire item from sale while preserving sales history
+  async retireMenuItem(tenantId: string, id: string) {
+    const existing = await prisma.menuItem.findFirst({ where: { id, tenantId } });
+    if (!existing) {
+      throw new Error('Menu item not found');
+    }
+
+    return prisma.menuItem.update({
+      where: { id: existing.id },
+      data: { isAvailable: false, status: 'ARCHIVED' }
     });
   }
 }

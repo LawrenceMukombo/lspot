@@ -50,6 +50,7 @@ recipeRouter.post('/scale', authenticate, async (req: RequestWithUser, res: Resp
     }
 
     const scaled = await recipeService.scaleRecipe(
+      req.user!.tenantId,
       parsed.data.recipeId,
       parsed.data.targetPortions
     );

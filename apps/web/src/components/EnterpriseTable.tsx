@@ -8,7 +8,12 @@ import {
   Search,
   Download,
   Eye,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Edit2,
+  Trash2,
+  MoreVertical,
+  Check,
+  X
 } from 'lucide-react';
 
 export interface Column<T> {
@@ -25,6 +30,11 @@ interface EnterpriseTableProps<T> {
   searchPlaceholder?: string;
   onExportCsv?: () => void;
   isLoading?: boolean;
+  onRowClick?: (row: T) => void;
+  onEditRow?: (row: T) => void;
+  onDeleteRow?: (row: T) => void;
+  canEdit?: boolean;
+  canDelete?: boolean;
 }
 
 export function EnterpriseTable<T extends Record<string, any>>({
@@ -33,13 +43,19 @@ export function EnterpriseTable<T extends Record<string, any>>({
   title,
   searchPlaceholder = 'Search records...',
   onExportCsv,
-  isLoading = false
+  isLoading = false,
+  onRowClick,
+  onEditRow,
+  onDeleteRow,
+  canEdit = true,
+  canDelete = true
 }: EnterpriseTableProps<T>) {
   const [searchTerm, setSearchTerm] = useState('');
   const [pageSize, setPageSize] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [selectedRow, setSelectedRow] = useState<T | null>(null);
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>(() =>
     columns.reduce((acc, col) => ({ ...acc, [col.key]: true }), {})
   );
@@ -233,7 +249,19 @@ export function EnterpriseTable<T extends Record<string, any>>({
               </tr>
             ) : (
               paginatedData.map((row, index) => (
-                <tr key={row.id || index} className="hover:bg-slate-800/40 transition">
+                <tr
+                  key={row.id || index}
+                  onClick={() => {
+                    if (onRowClick) {
+                      onRowClick(row);
+                    } else {
+                      setSelectedRow(row);
+                    }
+                  }}
+                  className={`hover:bg-slate-800/40 transition group cursor-pointer ${
+                    selectedRow?.id === row.id ? 'bg-amber-500/10 border-l-2 border-amber-500' : ''
+                  }`}
+                >
                   {displayedCols.map((col) => (
                     <td key={col.key} className="px-4 py-3.5 whitespace-nowrap">
                       {col.render ? col.render(row) : String(row[col.key] ?? '—')}
@@ -309,6 +337,80 @@ export function EnterpriseTable<T extends Record<string, any>>({
           </button>
         </div>
       </div>
+
+      {/* Row-Click Quick Action & Drilldown Modal */}
+      {selectedRow && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="font-extrabold text-base text-white">Record Action & Drill-Down</h3>
+                <p className="text-xs text-slate-400">Row selected for review, update or deletion</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedRow(null)}
+                className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Summary preview of row fields */}
+            <div className="p-3.5 bg-slate-950/70 border border-slate-800/80 rounded-xl space-y-1.5 text-xs max-h-52 overflow-y-auto">
+              {displayedCols.map((col) => (
+                <div key={col.key} className="flex justify-between py-1 border-b border-slate-900 last:border-none">
+                  <span className="text-slate-500 font-medium">{col.header}:</span>
+                  <span className="font-semibold text-slate-200 text-right truncate max-w-[200px]">
+                    {String(selectedRow[col.key] ?? '—')}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Actions: Edit, Delete or Close based on user permissions */}
+            <div className="flex items-center gap-2 pt-2">
+              {canEdit && onEditRow && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const row = selectedRow;
+                    setSelectedRow(null);
+                    onEditRow(row);
+                  }}
+                  className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-md shadow-amber-500/20"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  <span>Edit / Update</span>
+                </button>
+              )}
+
+              {canDelete && onDeleteRow && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const row = selectedRow;
+                    setSelectedRow(null);
+                    onDeleteRow(row);
+                  }}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-md shadow-rose-600/20"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Record</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setSelectedRow(null)}
+                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -8,7 +8,7 @@ export const shiftRouter = Router();
 
 shiftRouter.get('/current', authenticate, async (req: RequestWithUser, res: Response) => {
   try {
-    const shift = await shiftService.getCurrentShift(req.user!.id);
+    const shift = await shiftService.getCurrentShift(req.user!.id, req.user!.tenantId);
     return res.json({ success: true, data: shift });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
@@ -58,8 +58,26 @@ shiftRouter.post(
         });
       }
 
-      const closed = await shiftService.closeShift(parsed.data.shiftId, parsed.data);
+      const closed = await shiftService.closeShift(req.user!.tenantId, parsed.data.shiftId, parsed.data);
       return res.json({ success: true, message: 'Shift closed and balanced successfully', data: closed });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+shiftRouter.post(
+  '/withdraw',
+  authenticate,
+  requireRole(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER, UserRole.CASHIER),
+  async (req: RequestWithUser, res: Response) => {
+    try {
+      const updated = await shiftService.recordCashWithdrawal(req.user!.tenantId, req.user!.id, req.body);
+      return res.json({
+        success: true,
+        message: 'Cash withdrawal (Safe Drop) recorded and drawer balance updated.',
+        data: updated
+      });
     } catch (err: any) {
       return res.status(400).json({ success: false, message: err.message });
     }

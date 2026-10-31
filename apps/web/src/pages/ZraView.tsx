@@ -6,7 +6,10 @@ import {
   RefreshCw,
   QrCode,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Sliders,
+  Save,
+  Zap
 } from 'lucide-react';
 import { apiRequest } from '../api.js';
 import { RESTAURANT_NAME, RESTAURANT_LOCATION } from '@lspot/shared';
@@ -15,6 +18,19 @@ export function ZraView() {
   const [status, setStatus] = useState<any>(null);
   const [sales, setSales] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
+  const [isBatchFiscalizing, setIsBatchFiscalizing] = useState(false);
+  const [zraForm, setZraForm] = useState({
+    tpin: '1009988776',
+    vsdcMode: 'LOCAL_SIGNATURE',
+    vsdcBaseUrl: 'http://localhost:8080/vsdc',
+    branchCode: '000',
+    deviceSerial: 'LSPOT-VSDC-001',
+    taxEnabled: false,
+    taxRatePercent: 16,
+    autoFiscalizeOnCheckout: false
+  });
 
   useEffect(() => {
     loadZraStatus();
@@ -24,25 +40,64 @@ export function ZraView() {
     setIsLoading(true);
     try {
       const data = await apiRequest('/zra/compliance-status');
-      if (data) setStatus(data);
+      if (data) {
+        setStatus(data);
+        setZraForm({
+          tpin: data.tpin || '1009988776',
+          vsdcMode: data.vsdcMode || 'LOCAL_SIGNATURE',
+          vsdcBaseUrl: data.vsdcBaseUrl || 'http://localhost:8080/vsdc',
+          branchCode: data.branchCode || '000',
+          deviceSerial: data.deviceSerial || 'LSPOT-VSDC-001',
+          taxEnabled: Boolean(data.smartInvoiceEnabled),
+          taxRatePercent: Number(data.taxRatePercent ?? 16),
+          autoFiscalizeOnCheckout: Boolean(data.autoFiscalizeOnCheckout)
+        });
+      }
       const s = await apiRequest('/pos/sales');
       if (s) setSales(s);
-    } catch (e) {
-      // Fallback
-      setStatus({
+    } catch (e: any) {
+      console.warn('Network error loading ZRA compliance status:', e);
+      setStatus((prev: any) => prev || {
         tpin: 'Pending Official Registration',
         smartInvoiceEnabled: false,
         vatRate: '16%',
-        fiscalizedSalesCount: 142,
-        pendingSubmissionCount: 4,
-        adapterStatus: 'READY_FOR_INTEGRATION_KEYS'
+        fiscalizedSalesCount: 0,
+        pendingSubmissionCount: 0,
+        adapterStatus: 'OFFLINE_OR_DISCONNECTED'
       });
-      setSales([
-        { id: 's1', saleNumber: 'SALE-847291', totalAmount: 135, createdAt: '2026-10-20T12:30:00Z', zraStatus: 'FISCALIZED', fiscalInvoiceNo: 'ZRA-KM74-7291' },
-        { id: 's2', saleNumber: 'SALE-847292', totalAmount: 70, createdAt: '2026-10-20T12:45:00Z', zraStatus: 'PENDING_SUBMISSION' }
-      ]);
+      setSales((prev: any[]) => (prev.length > 0 ? prev : []));
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSaveZraConfig = async () => {
+    setIsSavingConfig(true);
+    try {
+      await apiRequest('/zra/config', {
+        method: 'PUT',
+        body: JSON.stringify(zraForm)
+      });
+      setShowConfigModal(false);
+      await loadZraStatus();
+      alert('ZRA Smart Invoice VSDC & VAT parameters updated successfully!');
+    } catch (err: any) {
+      alert(`Failed to update ZRA settings: ${err.message}`);
+    } finally {
+      setIsSavingConfig(false);
+    }
+  };
+
+  const handleBatchFiscalize = async () => {
+    setIsBatchFiscalizing(true);
+    try {
+      const res = await apiRequest('/zra/fiscalize-batch', { method: 'POST' });
+      alert(`Batch fiscalization complete! Signed ${res?.fiscalizedCount ?? 0} invoice(s).`);
+      await loadZraStatus();
+    } catch (err: any) {
+      alert(`Batch fiscalization error: ${err.message}`);
+    } finally {
+      setIsBatchFiscalizing(false);
     }
   };
 
@@ -77,13 +132,32 @@ export function ZraView() {
           </div>
         </div>
 
-        <button
-          onClick={loadZraStatus}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold rounded-xl border border-slate-700 transition"
-        >
-          <RefreshCw className={`w-4 h-4 text-emerald-400 ${isLoading ? 'animate-spin' : ''}`} />
-          Verify Fiscal Engine
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={() => setShowConfigModal(true)}
+            className="flex items-center gap-2 px-3.5 py-2 bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 text-xs font-bold rounded-xl border border-amber-500/30 transition"
+          >
+            <Sliders className="w-4 h-4" />
+            <span>Configure VSDC & VAT</span>
+          </button>
+
+          <button
+            onClick={handleBatchFiscalize}
+            disabled={isBatchFiscalizing}
+            className="flex items-center gap-2 px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold rounded-xl transition shadow-md shadow-emerald-500/20 disabled:opacity-50"
+          >
+            <Zap className="w-4 h-4" />
+            <span>{isBatchFiscalizing ? 'Signing All...' : 'Sign All Pending Invoices'}</span>
+          </button>
+
+          <button
+            onClick={loadZraStatus}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700 transition"
+          >
+            <RefreshCw className={`w-4 h-4 text-emerald-400 ${isLoading ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
 
       {/* Compliance Overview Grid */}
@@ -166,6 +240,120 @@ export function ZraView() {
           </table>
         </div>
       </div>
+
+      {/* ZRA VSDC & VAT Configuration Modal */}
+      {showConfigModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="font-bold text-lg text-white">ZRA Smart Invoice VSDC & VAT Configuration</h3>
+                <p className="text-xs text-slate-400">Configure Taxpayer TPIN, VSDC endpoint, branch code, and VAT rules</p>
+              </div>
+              <button
+                onClick={() => setShowConfigModal(false)}
+                className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 flex items-center justify-center"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="text-slate-400 block mb-1">ZRA Taxpayer TPIN</label>
+                <input
+                  value={zraForm.tpin}
+                  onChange={(e) => setZraForm({ ...zraForm, tpin: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm font-mono text-white"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">VSDC Operating Mode</label>
+                <select
+                  value={zraForm.vsdcMode}
+                  onChange={(e) => setZraForm({ ...zraForm, vsdcMode: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white"
+                >
+                  <option value="LOCAL_SIGNATURE">Local Signature Queue (Offline-Ready)</option>
+                  <option value="SANDBOX_VSDC">ZRA Sandbox VSDC Server</option>
+                  <option value="PRODUCTION_VSDC">ZRA Live Production VSDC</option>
+                </select>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-slate-400 block mb-1">VSDC Device Server Endpoint URL</label>
+                <input
+                  value={zraForm.vsdcBaseUrl}
+                  onChange={(e) => setZraForm({ ...zraForm, vsdcBaseUrl: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm font-mono text-white"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">ZRA Branch Code</label>
+                <input
+                  value={zraForm.branchCode}
+                  onChange={(e) => setZraForm({ ...zraForm, branchCode: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm font-mono text-white"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">VSDC Device Serial</label>
+                <input
+                  value={zraForm.deviceSerial}
+                  onChange={(e) => setZraForm({ ...zraForm, deviceSerial: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm font-mono text-white"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">Standard VAT Rate (%)</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  value={zraForm.taxRatePercent}
+                  onChange={(e) => setZraForm({ ...zraForm, taxRatePercent: Number(e.target.value) })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm font-mono text-amber-400 font-bold"
+                />
+              </div>
+              <div className="flex flex-col justify-end gap-2">
+                <label className="flex items-center gap-2 text-slate-200 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={zraForm.taxEnabled}
+                    onChange={(e) => setZraForm({ ...zraForm, taxEnabled: e.target.checked })}
+                    className="rounded border-slate-700"
+                  />
+                  <span>Enable VAT Computation on Sales</span>
+                </label>
+                <label className="flex items-center gap-2 text-slate-200 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={zraForm.autoFiscalizeOnCheckout}
+                    onChange={(e) => setZraForm({ ...zraForm, autoFiscalizeOnCheckout: e.target.checked })}
+                    className="rounded border-slate-700"
+                  />
+                  <span>Auto-Fiscalize on POS Checkout</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+              <button
+                onClick={() => setShowConfigModal(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveZraConfig}
+                disabled={isSavingConfig}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold rounded-xl flex items-center gap-1.5"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{isSavingConfig ? 'Saving...' : 'Save ZRA Configuration'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

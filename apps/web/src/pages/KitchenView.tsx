@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ChefHat,
   PlusCircle,
@@ -6,15 +6,142 @@ import {
   CheckCircle2,
   Lock,
   Layers,
-  Utensils
+  Utensils,
+  Volume2,
+  VolumeX,
+  Bell,
+  Timer,
+  Flame,
+  Check,
+  Clock
 } from 'lucide-react';
 import { apiRequest } from '../api.js';
 import { EnterpriseTable, Column } from '../components/EnterpriseTable.js';
+import { DetailDrawer, DetailStat, DetailSection, DetailRows, btn } from '../components/DetailDrawer.js';
+
+interface KdsTicket {
+  id: string;
+  saleNumber: string;
+  orderType: string;
+  tableNumber?: string;
+  items: { name: string; quantity: number; notes?: string }[];
+  createdAt: string;
+  status: 'QUEUED' | 'COOKING' | 'READY';
+}
 
 export function KitchenView() {
   const [register, setRegister] = useState<any>(null);
   const [menuItems, setMenuItems] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+
+  // KDS Live Orders & Sound Chimes state
+  const [kdsTickets, setKdsTickets] = useState<KdsTicket[]>([
+    {
+      id: 'kds-init-1',
+      saleNumber: 'ORD-8821',
+      orderType: 'DINE_IN',
+      tableNumber: 'Table 4',
+      items: [
+        { name: 'Nshima with Chicken', quantity: 2, notes: 'Extra soup, soft nshima' },
+        { name: 'Village Chicken Stew', quantity: 1 }
+      ],
+      createdAt: new Date(Date.now() - 4 * 60000).toISOString(),
+      status: 'COOKING'
+    },
+    {
+      id: 'kds-init-2',
+      saleNumber: 'ORD-8822',
+      orderType: 'TAKEAWAY',
+      items: [
+        { name: 'Nshima with Bream Fish', quantity: 1, notes: 'Well fried bream' },
+        { name: 'Cold Coca Cola', quantity: 1 }
+      ],
+      createdAt: new Date(Date.now() - 14 * 60000).toISOString(),
+      status: 'QUEUED'
+    },
+    {
+      id: 'kds-init-3',
+      saleNumber: 'ORD-8819',
+      orderType: 'DINE_IN',
+      tableNumber: 'Table 2',
+      items: [{ name: 'Rice with Chicken', quantity: 2 }],
+      createdAt: new Date(Date.now() - 24 * 60000).toISOString(),
+      status: 'QUEUED'
+    }
+  ]);
+  const [chimeEnabled, setChimeEnabled] = useState(true);
+  const [lastChimedTicket, setLastChimedTicket] = useState<string | null>(null);
+  // Live ticking timestamp updated every 10 seconds so waiting times tick in real-time
+  const [currentTime, setCurrentTime] = useState<number>(Date.now());
+
+  useEffect(() => {
+    const timerInterval = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 10000);
+    return () => clearInterval(timerInterval);
+  }, []);
+
+  // Web Audio Synth Chime for Android POS / KDS devices
+  const playKitchenChime = () => {
+    if (!chimeEnabled) return;
+    try {
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      const now = ctx.currentTime;
+
+      // Two-tone bright kitchen bell chime (880Hz -> 1320Hz)
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'triangle';
+      osc1.frequency.setValueAtTime(880, now);
+      osc1.frequency.exponentialRampToValueAtTime(1320, now + 0.15);
+      gain1.gain.setValueAtTime(0.3, now);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start(now);
+      osc1.stop(now + 0.8);
+
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(1760, now + 0.2);
+      gain2.gain.setValueAtTime(0.35, now + 0.2);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(now + 0.2);
+      osc2.stop(now + 1.2);
+    } catch {
+      // AudioContext unavailable or blocked by autoplay policy
+    }
+  };
+
+  useEffect(() => {
+    // Listen for incoming POS kitchen ticket events
+    const handleNewTicket = (e: any) => {
+      const ticketData = e.detail;
+      if (ticketData) {
+        const newTicket: KdsTicket = {
+          id: ticketData.id || `kds-${Date.now()}`,
+          saleNumber: ticketData.saleNumber || 'NEW-ORD',
+          orderType: ticketData.orderType || 'DINE_IN',
+          tableNumber: ticketData.tableNumber,
+          items: ticketData.items || [],
+          createdAt: ticketData.createdAt || new Date().toISOString(),
+          status: 'QUEUED'
+        };
+        setKdsTickets((prev) => [newTicket, ...prev]);
+        setLastChimedTicket(newTicket.saleNumber);
+        playKitchenChime();
+        setTimeout(() => setLastChimedTicket(null), 4000);
+      }
+    };
+
+    window.addEventListener('newKitchenTicketFired', handleNewTicket);
+    return () => window.removeEventListener('newKitchenTicketFired', handleNewTicket);
+  }, [chimeEnabled]);
 
   // Modals
   const [showBatchModal, setShowBatchModal] = useState(false);
@@ -34,29 +161,104 @@ export function KitchenView() {
 
   const [supervisorPin, setSupervisorPin] = useState('1234');
 
+  // Click-to-inspect detail drawer
+  const [selectedItem, setSelectedItem] = useState<any>(null);
+
+  const openBatchFor = async (menuItemId?: string) => {
+    if (menuItemId) setBatchMenuId(menuItemId);
+    setSelectedItem(null);
+    if (!register?.id) {
+      await loadRegister();
+    }
+    setShowBatchModal(true);
+  };
+
+  const openWasteFor = async (menuItemId?: string) => {
+    if (menuItemId) setWasteMenuId(menuItemId);
+    setSelectedItem(null);
+    if (!register?.id) {
+      await loadRegister();
+    }
+    setShowWasteModal(true);
+  };
+
   useEffect(() => {
     loadRegister();
     loadMenuItems();
+    loadActiveKdsTickets();
+
+    // Poll for new live kitchen orders every 10 seconds
+    const pollInterval = setInterval(() => {
+      loadActiveKdsTickets();
+    }, 10000);
+    return () => clearInterval(pollInterval);
   }, []);
+
+  const loadActiveKdsTickets = async () => {
+    try {
+      // First check local storage queue
+      const localKdsStr = localStorage.getItem('lspot_active_kds_orders');
+      let localOrders: KdsTicket[] = [];
+      if (localKdsStr) {
+        try {
+          localOrders = JSON.parse(localKdsStr);
+        } catch {}
+      }
+
+      // Also fetch multi-device KDS tickets and today's recent POS sales
+      const backendKds = await apiRequest('/pos/kds-tickets').catch(() => []);
+      const sales = await apiRequest('/pos/sales?limit=25');
+      if (Array.isArray(sales)) {
+        const bumpedIds = new Set(JSON.parse(localStorage.getItem('lspot_bumped_kds_ids') || '[]'));
+
+        const serverTickets: KdsTicket[] = [
+          ...(Array.isArray(backendKds) ? backendKds.filter((t: any) => !bumpedIds.has(t.id)) : []),
+          ...sales
+            .filter((s: any) => s.paymentStatus !== 'REFUNDED' && !bumpedIds.has(s.id))
+            .map((s: any) => ({
+              id: s.id,
+              saleNumber: s.saleNumber,
+              orderType: (s.orderType as any) || 'DINE_IN',
+              tableNumber: s.tableNumber || undefined,
+              items: (s.items || []).map((it: any) => ({
+                name: it.menuItem?.name || 'Dish',
+                quantity: it.quantity,
+                notes: it.notes || undefined
+              })),
+              createdAt: s.createdAt,
+              status: 'QUEUED' as const
+            }))
+        ];
+
+        // Merge local and server tickets avoiding duplicate IDs
+        const combined = [...localOrders];
+        const existingIds = new Set(combined.map((t) => t.id));
+        for (const st of serverTickets) {
+          if (!existingIds.has(st.id)) {
+            combined.push(st);
+            existingIds.add(st.id);
+          }
+        }
+
+        if (combined.length > 0) {
+          setKdsTickets(combined);
+        }
+      } else if (localOrders.length > 0) {
+        setKdsTickets(localOrders);
+      }
+    } catch (e) {
+      console.warn('Error loading KDS orders:', e);
+    }
+  };
 
   const loadRegister = async () => {
     setIsLoading(true);
     try {
       const res = await apiRequest('/kitchen/registers/today');
       if (res) setRegister(res);
-    } catch (e) {
-      // Fallback sample kitchen register data
-      setRegister({
-        id: 'reg-today-01',
-        businessDate: new Date().toISOString().split('T')[0],
-        status: 'OPEN',
-        items: [
-          { id: 'k1', menuItem: { id: 'm1', name: 'Nshima with Chicken', portionSize: 'Standard Portion' }, openingPortions: 0, preparedPortions: 30, soldPortions: 22, wastePortions: 2, staffMealPortions: 1, complimentaryPortions: 0, remainingPortions: 5, closingPortions: 0 },
-          { id: 'k2', menuItem: { id: 'm2', name: 'Nshima with Beef Stew', portionSize: 'Standard Portion' }, openingPortions: 0, preparedPortions: 25, soldPortions: 18, wastePortions: 1, staffMealPortions: 1, complimentaryPortions: 0, remainingPortions: 5, closingPortions: 0 },
-          { id: 'k3', menuItem: { id: 'm3', name: 'Nshima with Bream Fish', portionSize: 'Whole Fish' }, openingPortions: 0, preparedPortions: 15, soldPortions: 12, wastePortions: 0, staffMealPortions: 0, complimentaryPortions: 0, remainingPortions: 3, closingPortions: 0 },
-          { id: 'k4', menuItem: { id: 'm4', name: 'Rice with Chicken', portionSize: 'Standard Portion' }, openingPortions: 0, preparedPortions: 15, soldPortions: 11, wastePortions: 0, staffMealPortions: 0, complimentaryPortions: 0, remainingPortions: 4, closingPortions: 0 }
-        ]
-      });
+    } catch (e: any) {
+      console.warn('Network error loading today kitchen register:', e);
+      setRegister(null);
     } finally {
       setIsLoading(false);
     }
@@ -66,13 +268,9 @@ export function KitchenView() {
     try {
       const items = await apiRequest('/menu/items');
       if (items) setMenuItems(items);
-    } catch (e) {
-      setMenuItems([
-        { id: 'm1', name: 'Nshima with Chicken' },
-        { id: 'm2', name: 'Nshima with Beef Stew' },
-        { id: 'm3', name: 'Nshima with Bream Fish' },
-        { id: 'm4', name: 'Rice with Chicken' }
-      ]);
+    } catch (e: any) {
+      console.warn('Network error loading menu items for kitchen batch:', e);
+      setMenuItems([]);
     }
   };
 
@@ -81,11 +279,24 @@ export function KitchenView() {
       alert('Please select a menu dish');
       return;
     }
+
     try {
+      let activeRegister = register;
+      if (!activeRegister?.id) {
+        // Fetch or auto-open today's register
+        activeRegister = await apiRequest('/kitchen/registers/today');
+        if (activeRegister) setRegister(activeRegister);
+      }
+
+      if (!activeRegister?.id) {
+        alert('Active kitchen register could not be initialized. Please check network connection.');
+        return;
+      }
+
       await apiRequest('/kitchen/batches', {
         method: 'POST',
         body: JSON.stringify({
-          registerId: register.id,
+          registerId: activeRegister.id,
           menuItemId: batchMenuId,
           plannedPortions: Number(plannedPortions),
           actualPreparedPortions: Number(actualPortions),
@@ -105,10 +316,21 @@ export function KitchenView() {
       return;
     }
     try {
+      let activeRegister = register;
+      if (!activeRegister?.id) {
+        activeRegister = await apiRequest('/kitchen/registers/today');
+        if (activeRegister) setRegister(activeRegister);
+      }
+
+      if (!activeRegister?.id) {
+        alert('Active kitchen register could not be initialized.');
+        return;
+      }
+
       await apiRequest('/kitchen/waste', {
         method: 'POST',
         body: JSON.stringify({
-          registerId: register.id,
+          registerId: activeRegister.id,
           menuItemId: wasteMenuId,
           portionsWasted: Number(wastePortions),
           wasteReason,
@@ -125,10 +347,21 @@ export function KitchenView() {
 
   const handleCloseRegister = async () => {
     try {
+      let activeRegister = register;
+      if (!activeRegister?.id) {
+        activeRegister = await apiRequest('/kitchen/registers/today');
+        if (activeRegister) setRegister(activeRegister);
+      }
+
+      if (!activeRegister?.id) {
+        alert('No active register found to close.');
+        return;
+      }
+
       await apiRequest('/kitchen/registers/close', {
         method: 'POST',
         body: JSON.stringify({
-          registerId: register.id,
+          registerId: activeRegister.id,
           supervisorPin,
           itemsClosing: (register.items || []).map((i: any) => ({
             menuItemId: i.menuItem.id,
@@ -166,7 +399,7 @@ export function KitchenView() {
       key: 'remainingPortions',
       header: 'Available for Sale',
       render: (row) => (
-        <span className="px-2.5 py-1 rounded-md bg-amber-500/20 text-amber-300 font-mono font-extrabold border border-amber-500/30">
+        <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-300 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/30 font-mono font-bold text-xs shadow-sm">
           {row.remainingPortions} Portions
         </span>
       )
@@ -202,7 +435,22 @@ export function KitchenView() {
 
         <div className="flex flex-wrap items-center gap-2.5">
           <button
-            onClick={() => setShowBatchModal(true)}
+            onClick={() => {
+              setChimeEnabled(!chimeEnabled);
+              if (!chimeEnabled) playKitchenChime();
+            }}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition border ${
+              chimeEnabled
+                ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 hover:bg-amber-500/20'
+                : 'bg-slate-800 text-slate-400 border-slate-700'
+            }`}
+          >
+            {chimeEnabled ? <Volume2 className="w-4 h-4 text-amber-400" /> : <VolumeX className="w-4 h-4" />}
+            <span>KDS Chimes: {chimeEnabled ? 'ON' : 'MUTED'}</span>
+          </button>
+
+          <button
+            onClick={() => openBatchFor()}
             disabled={register?.status === 'CLOSED'}
             className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-bold text-sm rounded-xl transition shadow-lg shadow-amber-500/20"
           >
@@ -211,7 +459,7 @@ export function KitchenView() {
           </button>
 
           <button
-            onClick={() => setShowWasteModal(true)}
+            onClick={() => openWasteFor()}
             disabled={register?.status === 'CLOSED'}
             className="flex items-center gap-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-rose-300 font-semibold text-sm rounded-xl border border-slate-700 transition"
           >
@@ -230,6 +478,143 @@ export function KitchenView() {
         </div>
       </div>
 
+      {/* KDS Live Kitchen Order Tickets Screen with Waiting Time Color-Coding */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <Flame className="w-5 h-5 text-amber-500" />
+            <div>
+              <h3 className="font-extrabold text-base text-white">Live Kitchen Display System (KDS)</h3>
+              <p className="text-xs text-slate-400">Color-coded waiting times: &lt;10m Normal, 10–20m Warning, &gt;20m Delayed Overdue</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs">
+            <span className="flex items-center gap-1 text-emerald-400">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> &lt;10 min (Fresh)
+            </span>
+            <span className="flex items-center gap-1 text-amber-400 ml-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> 10–20 min (Attention)
+            </span>
+            <span className="flex items-center gap-1 text-rose-400 ml-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping"></span> &gt;20 min (Urgent)
+            </span>
+          </div>
+        </div>
+
+        {kdsTickets.length === 0 ? (
+          <div className="p-8 text-center bg-slate-950/60 rounded-xl border border-slate-800 text-slate-500 text-xs">
+            No pending tickets. The kitchen line is clear!
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {kdsTickets.map((ticket) => {
+              const diffMs = Math.max(0, currentTime - new Date(ticket.createdAt).getTime());
+              const diffSeconds = Math.floor(diffMs / 1000);
+              const elapsedMinutes = Math.floor(diffSeconds / 60);
+              const displayTime =
+                elapsedMinutes < 1
+                  ? `${Math.max(5, diffSeconds)}s ago`
+                  : `${elapsedMinutes}m ago`;
+
+              let timerColor = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
+              let badgeColor = 'bg-emerald-500';
+              let isDelayed = false;
+
+              if (elapsedMinutes >= 20) {
+                timerColor = 'bg-rose-500/20 text-rose-400 border-rose-500/50 animate-pulse';
+                badgeColor = 'bg-rose-500';
+                isDelayed = true;
+              } else if (elapsedMinutes >= 10) {
+                timerColor = 'bg-amber-500/15 text-amber-400 border-amber-500/40';
+                badgeColor = 'bg-amber-500';
+              }
+
+              return (
+                <div
+                  key={ticket.id}
+                  className={`bg-slate-950/80 border rounded-2xl p-4 flex flex-col justify-between transition-all ${
+                    isDelayed ? 'border-rose-500 shadow-lg shadow-rose-950/50' : 'border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-black text-white text-base">{ticket.saleNumber}</span>
+                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                            {ticket.orderType}
+                          </span>
+                        </div>
+                        {ticket.tableNumber && (
+                          <span className="text-xs font-semibold text-amber-400 block mt-0.5">{ticket.tableNumber}</span>
+                        )}
+                      </div>
+
+                      <div className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-mono font-bold ${timerColor}`}>
+                        <Timer className="w-3.5 h-3.5" />
+                        <span>{displayTime}</span>
+                      </div>
+                    </div>
+
+                    {/* Ticket Items */}
+                    <div className="space-y-2">
+                      {ticket.items.map((it, idx) => (
+                        <div key={idx} className="flex items-start justify-between text-xs">
+                          <div>
+                            <span className="font-bold text-slate-100">{it.quantity}x {it.name}</span>
+                            {it.notes && (
+                              <p className="text-[11px] text-amber-400 italic mt-0.5 font-medium">↳ {it.notes}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Actions for Head Cook */}
+                  <div className="pt-3 border-t border-slate-800 flex items-center gap-2 mt-4">
+                    {ticket.status !== 'COOKING' ? (
+                      <button
+                        onClick={() =>
+                          setKdsTickets((prev) =>
+                            prev.map((t) => (t.id === ticket.id ? { ...t, status: 'COOKING' } : t))
+                          )
+                        }
+                        className="flex-1 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
+                      >
+                        <Flame className="w-3.5 h-3.5" />
+                        <span>Start Cooking</span>
+                      </button>
+                    ) : (
+                      <span className="text-[11px] font-bold text-amber-400 flex items-center gap-1 px-2 py-1 bg-amber-500/10 rounded">
+                        <Flame className="w-3.5 h-3.5 animate-bounce" /> On The Grill
+                      </span>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        const bumped = JSON.parse(localStorage.getItem('lspot_bumped_kds_ids') || '[]');
+                        bumped.push(ticket.id);
+                        localStorage.setItem('lspot_bumped_kds_ids', JSON.stringify(bumped));
+                        const localOrders = JSON.parse(localStorage.getItem('lspot_active_kds_orders') || '[]');
+                        const filtered = localOrders.filter((t: any) => t.id !== ticket.id);
+                        localStorage.setItem('lspot_active_kds_orders', JSON.stringify(filtered));
+                        setKdsTickets((prev) => prev.filter((t) => t.id !== ticket.id));
+                      }}
+                      className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 shadow-md shadow-emerald-950"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Ready / Bump</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Enterprise Data Table */}
       <EnterpriseTable
         columns={columns}
@@ -237,7 +622,95 @@ export function KitchenView() {
         title="Today's Meal Preparation & Sales Balance"
         searchPlaceholder="Search cooked dishes..."
         isLoading={isLoading}
+        onRowClick={(row) => setSelectedItem(row)}
       />
+
+      {/* Register Line Detail Drawer */}
+      <DetailDrawer
+        open={!!selectedItem}
+        onClose={() => setSelectedItem(null)}
+        title={selectedItem?.menuItem?.name || 'Register Item'}
+        subtitle={`${selectedItem?.menuItem?.portionSize || ''} • Business date ${register?.businessDate ? String(register.businessDate).split('T')[0] : ''}`}
+        icon={<Utensils className="w-5 h-5" />}
+        badge={
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${register?.status === 'CLOSED' ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
+            {register?.status || 'OPEN'}
+          </span>
+        }
+        actions={
+          register?.status !== 'CLOSED' && (
+            <>
+              <button id="kitchen-detail-waste" className={btn.secondary} onClick={() => openWasteFor(selectedItem?.menuItemId || selectedItem?.menuItem?.id)}>
+                <AlertOctagon className="w-4 h-4 text-rose-400" /> Record Waste / Staff Meal
+              </button>
+              <button id="kitchen-detail-batch" className={btn.primary} onClick={() => openBatchFor(selectedItem?.menuItemId || selectedItem?.menuItem?.id)}>
+                <PlusCircle className="w-4 h-4" /> Add Cooking Batch
+              </button>
+            </>
+          )
+        }
+      >
+        {selectedItem && (() => {
+          const menuId = selectedItem.menuItemId || selectedItem.menuItem?.id;
+          const batches = (register?.batches || []).filter((b: any) => b.menuItemId === menuId);
+          const available = Number(selectedItem.openingPortions) + Number(selectedItem.preparedPortions);
+          const consumed = Number(selectedItem.soldPortions) + Number(selectedItem.wastePortions) + Number(selectedItem.staffMealPortions) + Number(selectedItem.complimentaryPortions);
+          const sellThrough = available > 0 ? Math.round((Number(selectedItem.soldPortions) / available) * 100) : 0;
+          const price = Number(selectedItem.menuItem?.sellingPrice || 0);
+          return (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                <DetailStat label="Opening" value={selectedItem.openingPortions} />
+                <DetailStat label="Prepared" value={`+${selectedItem.preparedPortions}`} tone="good" />
+                <DetailStat label="Sold (POS)" value={`-${selectedItem.soldPortions}`} tone="warn" />
+                <DetailStat label="Kitchen Waste" value={selectedItem.wastePortions} tone="bad" />
+                <DetailStat label="Staff Meals" value={selectedItem.staffMealPortions} tone="accent" />
+                <DetailStat label="Complimentary" value={selectedItem.complimentaryPortions} />
+              </div>
+
+              <DetailSection title="Portion Balance">
+                <DetailRows
+                  rows={[
+                    ['Total available (opening + cooked)', `${available} portions`],
+                    ['Total consumed', `${consumed} portions`],
+                    ['Remaining for sale', <strong className="text-amber-300">{selectedItem.remainingPortions} portions</strong>],
+                    ['Sell-through rate', `${sellThrough}%`],
+                    ...(price > 0 ? [['Sales value (sold × price)', `K ${(price * Number(selectedItem.soldPortions)).toFixed(2)}`] as [string, React.ReactNode]] : []),
+                    ['Notes', selectedItem.notes || '—']
+                  ]}
+                />
+                <div className="mt-3 h-2 rounded-full bg-slate-800 overflow-hidden flex">
+                  <div className="bg-amber-500" style={{ width: `${available ? (selectedItem.soldPortions / available) * 100 : 0}%` }} title="Sold" />
+                  <div className="bg-rose-500" style={{ width: `${available ? (selectedItem.wastePortions / available) * 100 : 0}%` }} title="Waste" />
+                  <div className="bg-sky-500" style={{ width: `${available ? (selectedItem.staffMealPortions / available) * 100 : 0}%` }} title="Staff meals" />
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">Amber = sold • Rose = waste • Blue = staff meals • Grey = remaining</p>
+              </DetailSection>
+
+              <DetailSection title={`Cooking Batches Today (${batches.length})`}>
+                {batches.length === 0 ? (
+                  <p className="text-sm text-slate-500 bg-slate-950/40 border border-dashed border-slate-800 rounded-xl p-4 text-center">
+                    No cooking batches recorded for this dish today.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {batches.map((b: any) => (
+                      <li key={b.id} className="bg-slate-950/40 border border-slate-800 rounded-xl p-3 text-sm">
+                        <div className="flex justify-between">
+                          <span className="font-mono text-xs text-slate-400">{b.createdAt ? new Date(b.createdAt).toLocaleTimeString('en-GB', { timeZone: 'Africa/Lusaka' }) : '—'}</span>
+                          <span className="font-mono text-emerald-400 font-bold">+{b.actualPreparedPortions} cooked</span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">Planned {b.plannedPortions} • Yield {b.plannedPortions ? Math.round((b.actualPreparedPortions / b.plannedPortions) * 100) : 0}%</p>
+                        {b.notes && <p className="text-xs text-slate-300 mt-1 break-words">{b.notes}</p>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </DetailSection>
+            </>
+          );
+        })()}
+      </DetailDrawer>
 
       {/* Record Batch Modal */}
       {showBatchModal && (

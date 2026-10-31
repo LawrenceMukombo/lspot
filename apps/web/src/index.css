@@ -26,3 +26,249 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
+
+/* Light Theme Overrides */
+html.light ::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+html.light ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+html.light ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Light Theme Global Color Inversion Mappings */
+html.light {
+  color-scheme: light;
+}
+
+html.light body {
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+/* Deep background overrides */
+html.light .bg-slate-950 {
+  background-color: #f8fafc !important;
+  color: #0f172a;
+}
+html.light .bg-slate-950\/60,
+html.light .bg-slate-950\/70,
+html.light .bg-slate-950\/80,
+html.light .bg-slate-950\/90,
+html.light .bg-slate-950\/40,
+html.light .bg-slate-950\/50 {
+  background-color: rgba(241, 245, 249, 0.85) !important;
+}
+
+/* Card / Container / Header background overrides */
+html.light .bg-slate-900 {
+  background-color: #ffffff !important;
+  color: #0f172a;
+}
+html.light .bg-slate-900\/80,
+html.light .bg-slate-900\/60,
+html.light .bg-slate-900\/50 {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* Secondary background overrides (buttons, hover, chips) */
+html.light .bg-slate-850 {
+  background-color: #f1f5f9 !important;
+}
+html.light .bg-slate-800 {
+  background-color: #f1f5f9 !important;
+  color: #1e293b !important;
+}
+html.light .bg-slate-800\/40,
+html.light .bg-slate-800\/50,
+html.light .bg-slate-800\/60,
+html.light .bg-slate-800\/70 {
+  background-color: rgba(241, 245, 249, 0.7) !important;
+}
+html.light .hover\:bg-slate-800:hover,
+html.light .hover\:bg-slate-800\/40:hover,
+html.light .hover\:bg-slate-800\/60:hover,
+html.light .hover\:bg-slate-800\/70:hover {
+  background-color: #e2e8f0 !important;
+}
+html.light .hover\:bg-slate-700:hover {
+  background-color: #cbd5e1 !important;
+}
+
+/* Border overrides */
+html.light .border-slate-800,
+html.light .border-slate-800\/60,
+html.light .border-slate-800\/80,
+html.light .border-slate-700 {
+  border-color: #e2e8f0 !important;
+}
+html.light .divide-slate-800\/60 > :not([hidden]) ~ :not([hidden]),
+html.light .divide-slate-800 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #e2e8f0 !important;
+}
+
+/* Text overrides */
+html.light .text-white,
+html.light .text-slate-100 {
+  color: #0f172a !important;
+}
+html.light .text-slate-200 {
+  color: #1e293b !important;
+}
+html.light .text-slate-300 {
+  color: #334155 !important;
+}
+html.light .text-slate-400 {
+  color: #64748b !important;
+}
+html.light .text-slate-500 {
+  color: #64748b !important;
+}
+
+/* Keep accent text and buttons readable */
+html.light .bg-amber-500.text-slate-950,
+html.light .bg-amber-500 {
+  color: #0f172a !important;
+}
+html.light .text-amber-400 {
+  color: #d97706 !important;
+}
+html.light .text-emerald-400 {
+  color: #059669 !important;
+}
+html.light .text-blue-400 {
+  color: #2563eb !important;
+}
+html.light .text-rose-400,
+html.light .text-red-400 {
+  color: #e11d48 !important;
+}
+html.light .bg-emerald-950\/60,
+html.light .bg-emerald-950\/40 {
+  background-color: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+}
+html.light .bg-amber-950\/60,
+html.light .bg-amber-950\/40 {
+  background-color: #fffbeb !important;
+  border-color: #fde68a !important;
+}
+html.light .bg-rose-950\/60,
+html.light .bg-red-950\/60 {
+  background-color: #fff1f2 !important;
+  border-color: #fecdd3 !important;
+}
+
+/* Form inputs */
+html.light input,
+html.light select,
+html.light textarea {
+  color: #0f172a !important;
+}
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Shadows in light mode */
+html.light .shadow-xl,
+html.light .shadow-2xl,
+html.light .shadow-lg {
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.04) !important;
+}
+
+/* Gradients in light mode */
+html.light .bg-gradient-to-r.from-slate-900,
+html.light .from-slate-900 {
+  --tw-gradient-from: #ffffff var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgba(255, 255, 255, 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), #f8fafc var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+html.light .via-slate-850 {
+  --tw-gradient-via-position: 50%;
+  --tw-gradient-stops: var(--tw-gradient-from), #f1f5f9 var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+html.light .to-slate-900 {
+  --tw-gradient-to: #ffffff var(--tw-gradient-to-position) !important;
+}
+html.light .to-slate-950 {
+  --tw-gradient-to: #f8fafc var(--tw-gradient-to-position) !important;
+}
+html.light .from-slate-950 {
+  --tw-gradient-from: #f8fafc var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgba(248, 250, 252, 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+html.light .bg-gradient-to-r.from-slate-900.via-slate-850.to-slate-900 {
+  background-image: linear-gradient(to right, #ffffff, #f8fafc, #ffffff) !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* Print Media Styling for Crisp Fast Receipts & Invoices */
+@media print {
+  @page {
+    margin: 5mm;
+    size: auto;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11pt !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Hide app shell, navigation bars, sidebars and background overlays when printing */
+  nav,
+  header,
+  aside,
+  .no-print,
+  button,
+  .fixed.inset-0.bg-slate-950\/80,
+  .fixed.inset-0.bg-slate-950\/85 {
+    background: transparent !important;
+  }
+
+  /* Make modal content stand alone cleanly on white printable paper */
+  .fixed.inset-0 {
+    position: static !important;
+    display: block !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: none !important;
+  }
+
+  .bg-slate-900,
+  .bg-slate-950 {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* Force readable black text on printed slips */
+  .text-white,
+  .text-slate-100,
+  .text-slate-200,
+  .text-slate-300,
+  .text-slate-400,
+  .text-slate-500 {
+    color: #000000 !important;
+  }
+
+  /* Keep borders visible as light gray dividers on receipt paper */
+  .border-slate-800,
+  .border-slate-700,
+  .border-slate-200 {
+    border-color: #cccccc !important;
+  }
+
+  button {
+    display: none !important;
+  }
+}
+
+

@@ -21,6 +21,15 @@ financeRouter.get('/dashboard', authenticate, async (req: RequestWithUser, res: 
   }
 });
 
+financeRouter.get('/expense-categories', authenticate, async (req: RequestWithUser, res: Response) => {
+  try {
+    const categories = await financeService.getExpenseCategories(req.user!.tenantId);
+    return res.json({ success: true, data: categories });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 financeRouter.get('/expenses', authenticate, async (req: RequestWithUser, res: Response) => {
   try {
     const expenses = await financeService.getExpenses(req.user!.tenantId);

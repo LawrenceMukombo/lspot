@@ -459,6 +459,279 @@ export async function seedDatabase() {
     });
   }
 
+  // 9. Realistic Daily Expenses
+  const todayDate = new Date();
+  const sampleExpenses = [
+    {
+      id: 'exp-rec-001',
+      categoryId: 'exp-001',
+      amount: 350.0,
+      payee: 'ZESCO Prepaid Power Token',
+      description: 'Kitchen 3-phase electricity units recharge',
+      paymentMethod: 'CASH'
+    },
+    {
+      id: 'exp-rec-002',
+      categoryId: 'exp-002',
+      amount: 450.0,
+      payee: 'Afrox Gas Kalumbila',
+      description: '48kg Commercial LPG cylinder exchange for cookers',
+      paymentMethod: 'CASH'
+    },
+    {
+      id: 'exp-rec-003',
+      categoryId: 'exp-003',
+      amount: 220.0,
+      payee: 'Solwezi Fresh Produce Courier',
+      description: 'Morning delivery of fresh vegetables, rape greens & tomatoes',
+      paymentMethod: 'AIRTEL_MONEY'
+    }
+  ];
+
+  for (const er of sampleExpenses) {
+    await prisma.expense.upsert({
+      where: { id: er.id },
+      update: { amount: er.amount, payee: er.payee },
+      create: {
+        id: er.id,
+        tenantId: tenant.id,
+        categoryId: er.categoryId,
+        amount: er.amount,
+        payee: er.payee,
+        description: er.description,
+        paymentMethod: er.paymentMethod,
+        expenseDate: todayDate,
+        approvedById: defaultUsers[1].id
+      }
+    });
+  }
+
+  // 10. Today's Daily Kitchen Register & Production Loop
+  const todayMidnight = new Date();
+  todayMidnight.setHours(0, 0, 0, 0);
+
+  const kitchenRegister = await prisma.kitchenRegister.upsert({
+    where: { id: 'reg-today-001' },
+    update: {
+      businessDate: todayMidnight,
+      status: 'OPEN'
+    },
+    create: {
+      id: 'reg-today-001',
+      tenantId: tenant.id,
+      branchId: branch.id,
+      businessDate: todayMidnight,
+      status: 'OPEN'
+    }
+  });
+
+  const sampleKitchenItems = [
+    {
+      id: 'kitem-001',
+      menuItemId: 'menu-001', // Nshima with Chicken
+      openingPortions: 0,
+      preparedPortions: 35,
+      soldPortions: 28,
+      wastePortions: 1,
+      staffMealPortions: 1,
+      complimentaryPortions: 0,
+      remainingPortions: 5
+    },
+    {
+      id: 'kitem-002',
+      menuItemId: 'menu-002', // Nshima with Beef Stew
+      openingPortions: 0,
+      preparedPortions: 25,
+      soldPortions: 21,
+      wastePortions: 1,
+      staffMealPortions: 0,
+      complimentaryPortions: 0,
+      remainingPortions: 3
+    },
+    {
+      id: 'kitem-003',
+      menuItemId: 'menu-003', // Nshima with Bream Fish
+      openingPortions: 0,
+      preparedPortions: 18,
+      soldPortions: 15,
+      wastePortions: 0,
+      staffMealPortions: 0,
+      complimentaryPortions: 1,
+      remainingPortions: 2
+    },
+    {
+      id: 'kitem-004',
+      menuItemId: 'menu-004', // Nshima with Beans & Veg
+      openingPortions: 0,
+      preparedPortions: 15,
+      soldPortions: 12,
+      wastePortions: 0,
+      staffMealPortions: 1,
+      complimentaryPortions: 0,
+      remainingPortions: 2
+    },
+    {
+      id: 'kitem-005',
+      menuItemId: 'menu-005', // Rice with Chicken
+      openingPortions: 0,
+      preparedPortions: 15,
+      soldPortions: 10,
+      wastePortions: 0,
+      staffMealPortions: 0,
+      complimentaryPortions: 0,
+      remainingPortions: 5
+    }
+  ];
+
+  for (const ki of sampleKitchenItems) {
+    await prisma.kitchenRegisterItem.upsert({
+      where: { id: ki.id },
+      update: {
+        preparedPortions: ki.preparedPortions,
+        soldPortions: ki.soldPortions,
+        remainingPortions: ki.remainingPortions
+      },
+      create: {
+        id: ki.id,
+        registerId: kitchenRegister.id,
+        menuItemId: ki.menuItemId,
+        openingPortions: ki.openingPortions,
+        preparedPortions: ki.preparedPortions,
+        soldPortions: ki.soldPortions,
+        wastePortions: ki.wastePortions,
+        staffMealPortions: ki.staffMealPortions,
+        complimentaryPortions: ki.complimentaryPortions,
+        remainingPortions: ki.remainingPortions
+      }
+    });
+  }
+
+  // 11. Today's Realistic Live Sales & Receipts
+  const sampleSales = [
+    {
+      id: 'sale-001',
+      saleNumber: 'SALE-20261029-001',
+      orderType: 'DINE_IN',
+      tableNumber: 'Table 3',
+      subtotal: 195.0,
+      totalAmount: 195.0,
+      cashierId: defaultUsers[3].id,
+      items: [
+        { menuItemId: 'menu-001', quantity: 2, unitPrice: 65.0, subtotal: 130.0 },
+        { menuItemId: 'menu-003', quantity: 1, unitPrice: 65.0, subtotal: 65.0 }
+      ],
+      payment: { method: 'CASH', amount: 195.0 }
+    },
+    {
+      id: 'sale-002',
+      saleNumber: 'SALE-20261029-002',
+      orderType: 'TAKEAWAY',
+      subtotal: 150.0,
+      totalAmount: 150.0,
+      cashierId: defaultUsers[3].id,
+      items: [
+        { menuItemId: 'menu-002', quantity: 2, unitPrice: 60.0, subtotal: 120.0 },
+        { menuItemId: 'menu-006', quantity: 2, unitPrice: 15.0, subtotal: 30.0 }
+      ],
+      payment: { method: 'AIRTEL_MONEY', amount: 150.0, reference: 'AM-TXN-984210' }
+    },
+    {
+      id: 'sale-003',
+      saleNumber: 'SALE-20261029-003',
+      orderType: 'DINE_IN',
+      tableNumber: 'Table 7',
+      customerId: 'cust-001', // Kalumbila Mining Services Ltd
+      subtotal: 580.0,
+      totalAmount: 580.0,
+      cashierId: defaultUsers[3].id,
+      items: [
+        { menuItemId: 'menu-001', quantity: 4, unitPrice: 65.0, subtotal: 260.0 },
+        { menuItemId: 'menu-002', quantity: 4, unitPrice: 60.0, subtotal: 240.0 },
+        { menuItemId: 'menu-007', quantity: 8, unitPrice: 10.0, subtotal: 80.0 }
+      ],
+      payment: { method: 'CUSTOMER_CREDIT', amount: 580.0, reference: 'PO-KMS-2026-99' }
+    },
+    {
+      id: 'sale-004',
+      saleNumber: 'SALE-20261029-004',
+      orderType: 'DINE_IN',
+      tableNumber: 'Table 1',
+      subtotal: 145.0,
+      totalAmount: 145.0,
+      cashierId: defaultUsers[3].id,
+      items: [
+        { menuItemId: 'menu-005', quantity: 2, unitPrice: 65.0, subtotal: 130.0 },
+        { menuItemId: 'menu-006', quantity: 1, unitPrice: 15.0, subtotal: 15.0 }
+      ],
+      payment: { method: 'MTN_MOMO', amount: 145.0, reference: 'MM-TXN-441299' }
+    },
+    {
+      id: 'sale-005',
+      saleNumber: 'SALE-20261029-005',
+      orderType: 'DINE_IN',
+      tableNumber: 'VIP Lounge',
+      customerId: 'cust-002', // Manyama Transport
+      subtotal: 420.0,
+      totalAmount: 420.0,
+      cashierId: defaultUsers[3].id,
+      items: [
+        { menuItemId: 'menu-003', quantity: 4, unitPrice: 65.0, subtotal: 260.0 },
+        { menuItemId: 'menu-001', quantity: 2, unitPrice: 65.0, subtotal: 130.0 },
+        { menuItemId: 'menu-006', quantity: 2, unitPrice: 15.0, subtotal: 30.0 }
+      ],
+      payment: { method: 'CUSTOMER_CREDIT', amount: 420.0, reference: 'VOUCHER-MTL-04' }
+    }
+  ];
+
+  for (const s of sampleSales) {
+    const createdSale = await prisma.sale.upsert({
+      where: { id: s.id },
+      update: { totalAmount: s.totalAmount, subtotal: s.subtotal },
+      create: {
+        id: s.id,
+        tenantId: tenant.id,
+        branchId: branch.id,
+        cashierId: s.cashierId,
+        customerId: s.customerId,
+        saleNumber: s.saleNumber,
+        orderType: s.orderType,
+        tableNumber: s.tableNumber,
+        subtotal: s.subtotal,
+        totalAmount: s.totalAmount,
+        paymentStatus: s.payment.method === 'CUSTOMER_CREDIT' ? 'CREDIT' : 'PAID'
+      }
+    });
+
+    for (let i = 0; i < s.items.length; i++) {
+      const it = s.items[i];
+      await prisma.saleItem.upsert({
+        where: { id: `${s.id}-item-${i + 1}` },
+        update: { quantity: it.quantity, subtotal: it.subtotal },
+        create: {
+          id: `${s.id}-item-${i + 1}`,
+          saleId: createdSale.id,
+          menuItemId: it.menuItemId,
+          unitPrice: it.unitPrice,
+          unitCost: it.unitPrice * 0.45, // 45% estimated food cost
+          quantity: it.quantity,
+          subtotal: it.subtotal
+        }
+      });
+    }
+
+    await prisma.payment.upsert({
+      where: { id: `${s.id}-pay` },
+      update: { amount: s.payment.amount, paymentMethod: s.payment.method },
+      create: {
+        id: `${s.id}-pay`,
+        saleId: createdSale.id,
+        paymentMethod: s.payment.method,
+        amount: s.payment.amount,
+        reference: s.payment.reference
+      }
+    });
+  }
+
   console.log('Seeding completed successfully!');
 }
 

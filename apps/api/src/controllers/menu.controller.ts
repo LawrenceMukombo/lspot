@@ -86,10 +86,25 @@ menuRouter.put(
       }
 
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const updated = await menuService.updateMenuItem(id, parsed.data);
+      const updated = await menuService.updateMenuItem(req.user!.tenantId, id, parsed.data);
       return res.json({ success: true, data: updated });
     } catch (err: any) {
       return res.status(500).json({ success: false, message: err.message });
+    }
+  }
+);
+
+menuRouter.delete(
+  '/items/:id',
+  authenticate,
+  requireRole(UserRole.OWNER, UserRole.MANAGER),
+  async (req: RequestWithUser, res: Response) => {
+    try {
+      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      await menuService.retireMenuItem(req.user!.tenantId, id);
+      return res.json({ success: true, message: 'Menu item retired from sale' });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
     }
   }
 );

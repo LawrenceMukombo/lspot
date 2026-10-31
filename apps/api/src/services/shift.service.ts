@@ -4,11 +4,16 @@ import {
   roundTo2Decimals,
   ShiftStatus
 } from '@lspot/shared';
+import { authService } from './auth.service.js';
 
 export class ShiftService {
-  async getCurrentShift(cashierId: string) {
+  async getCurrentShift(cashierId: string, tenantId?: string) {
     return prisma.cashierShift.findFirst({
-      where: { cashierId, status: ShiftStatus.OPEN },
+      where: {
+        cashierId,
+        ...(tenantId ? { tenantId } : {}),
+        status: ShiftStatus.OPEN
+      },
       include: {
         cashier: { select: { fullName: true, username: true } },
         sales: {
@@ -20,7 +25,7 @@ export class ShiftService {
   }
 
   async openShift(tenantId: string, branchId: string, cashierId: string, data: any) {
-    const existing = await this.getCurrentShift(cashierId);
+    const existing = await this.getCurrentShift(cashierId, tenantId);
     if (existing) {
       throw new Error('Cashier already has an open shift. Please close it first.');
     }
@@ -42,9 +47,9 @@ export class ShiftService {
     });
   }
 
-  async closeShift(shiftId: string, data: any) {
-    const shift = await prisma.cashierShift.findUnique({
-      where: { id: shiftId }
+  async closeShift(tenantId: string, shiftId: string, data: any) {
+    const shift = await prisma.cashierShift.findFirst({
+      where: { id: shiftId, tenantId }
     });
 
     if (!shift || shift.status !== ShiftStatus.OPEN) {
@@ -76,24 +81,16 @@ export class ShiftService {
         );
       }
 
-      // Verify supervisor PIN
-      const supervisor = await prisma.user.findFirst({
-        where: {
-          tenantId: shift.tenantId,
-          supervisorPin: data.supervisorPin,
-          role: { in: ['OWNER', 'MANAGER', 'SUPER_ADMIN', 'ACCOUNTANT'] },
-          isActive: true
-        }
-      });
-
-      if (!supervisor) {
+      // Verify supervisor PIN using AuthService (supports hashed and legacy PINs)
+      const verification = await authService.verifySupervisorOverride(shift.tenantId, String(data.supervisorPin).trim());
+      if (!verification.valid || !verification.supervisor) {
         throw new Error('Invalid Supervisor PIN. Only authorized managers or owners can approve cash shift variances.');
       }
 
-      supervisorId = supervisor.id;
+      supervisorId = verification.supervisor.id;
       varianceExplanation = varianceExplanation
-        ? `${varianceExplanation} (Approved by supervisor: ${supervisor.fullName})`
-        : `Approved by supervisor: ${supervisor.fullName}`;
+        ? `${varianceExplanation} (Approved by supervisor: ${verification.supervisor.fullName})`
+        : `Approved by supervisor: ${verification.supervisor.fullName}`;
     }
 
     const closed = await prisma.cashierShift.update({
@@ -116,6 +113,75 @@ export class ShiftService {
       ...closed,
       reconciliation: recon
     };
+  }
+
+  async recordCashWithdrawal(
+    tenantId: string,
+    cashierId: string,
+    data: { shiftId?: string; amount: number; reason: string; supervisorPin: string }
+  ) {
+    const amount = roundTo2Decimals(Number(data.amount || 0));
+    if (amount <= 0) {
+      throw new Error('Cash withdrawal amount must be greater than zero.');
+    }
+    if (!data.reason || !data.reason.trim()) {
+      throw new Error('Reason for safe drop / cash withdrawal is mandatory.');
+    }
+    if (!data.supervisorPin) {
+      throw new Error('Supervisor PIN is required to authorize a cash drawer withdrawal.');
+    }
+
+    const verification = await authService.verifySupervisorOverride(tenantId, String(data.supervisorPin).trim());
+    if (!verification.valid || !verification.supervisor) {
+      throw new Error('Invalid Supervisor PIN. Only authorized managers or owners can approve cash withdrawals.');
+    }
+
+    const shift = data.shiftId
+      ? await prisma.cashierShift.findFirst({ where: { id: data.shiftId, tenantId, status: ShiftStatus.OPEN } })
+      : await this.getCurrentShift(cashierId, tenantId);
+
+    if (!shift || shift.status !== ShiftStatus.OPEN) {
+      throw new Error('No active open shift found for this cashier.');
+    }
+
+    const newWithdrawals = roundTo2Decimals(Number(shift.cashWithdrawals) + amount);
+    const newExpected = roundTo2Decimals(
+      Number(shift.openingFloat) +
+        Number(shift.cashSales) +
+        Number(shift.cashCreditCollections) -
+        Number(shift.cashExpenses) -
+        newWithdrawals
+    );
+
+    const updatedShift = await prisma.cashierShift.update({
+      where: { id: shift.id },
+      data: {
+        cashWithdrawals: newWithdrawals,
+        expectedCash: newExpected
+      },
+      include: {
+        cashier: { select: { fullName: true, username: true } }
+      }
+    });
+
+    await prisma.auditEvent.create({
+      data: {
+        tenantId,
+        userId: verification.supervisor.id,
+        action: 'SHIFT_CASH_WITHDRAWAL',
+        entityType: 'CashierShift',
+        entityId: shift.id,
+        details: {
+          amount,
+          reason: data.reason.trim(),
+          approvedBy: verification.supervisor.fullName,
+          newWithdrawalsTotal: newWithdrawals,
+          newExpectedCash: newExpected
+        }
+      }
+    });
+
+    return updatedShift;
   }
 
   async getShiftHistory(tenantId: string, limit = 50) {

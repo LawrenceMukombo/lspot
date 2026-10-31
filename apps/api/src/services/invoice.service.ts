@@ -13,9 +13,9 @@ export class InvoiceService {
     });
   }
 
-  async getInvoiceById(id: string) {
-    return prisma.invoice.findUnique({
-      where: { id },
+  async getInvoiceById(tenantId: string, id: string) {
+    return prisma.invoice.findFirst({
+      where: { id, tenantId },
       include: {
         customer: true,
         payments: true,
@@ -56,7 +56,7 @@ export class InvoiceService {
     const totalSubtotal = creditSales.reduce((sum, s) => sum + Number(s.subtotal), 0);
     const totalAmount = creditSales.reduce((sum, s) => sum + Number(s.totalAmount), 0);
 
-    const customer = await prisma.customer.findUnique({ where: { id: customerId } });
+    const customer = await prisma.customer.findFirst({ where: { id: customerId, tenantId } });
     if (!customer) throw new Error('Customer not found');
 
     const invoiceNumber = `INV-CON-${Date.now().toString().slice(-8)}`;
@@ -112,19 +112,19 @@ export class InvoiceService {
     return `https://wa.me/${phone}?text=${text}`;
   }
 
-  async sendInvoice(invoiceId: string, deliveryMethod: string) {
-    const invoice = await this.getInvoiceById(invoiceId);
+  async sendInvoice(tenantId: string, invoiceId: string, deliveryMethod: string) {
+    const invoice = await this.getInvoiceById(tenantId, invoiceId);
     if (!invoice) throw new Error('Invoice not found');
 
     const shareUrl = this.generateWhatsAppShareUrl(invoice);
 
     await prisma.invoice.update({
-      where: { id: invoiceId },
+      where: { id: invoice.id },
       data: { deliveryStatus: 'DELIVERED' }
     });
 
     return {
-      invoiceId,
+      invoiceId: invoice.id,
       deliveryMethod,
       deliveryStatus: 'DELIVERED',
       shareUrl

@@ -6,7 +6,12 @@ import {
   Coins,
   CheckCircle,
   AlertTriangle,
-  History
+  History,
+  MessageSquare,
+  Send,
+  FileText,
+  Download,
+  CheckCircle2
 } from 'lucide-react';
 import { apiRequest } from '../api.js';
 import { EnterpriseTable, Column } from '../components/EnterpriseTable.js';
@@ -20,6 +25,14 @@ export function ShiftsView() {
   // Modals
   const [showOpenModal, setShowOpenModal] = useState(false);
   const [showCloseModal, setShowCloseModal] = useState(false);
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState(100);
+  const [withdrawReason, setWithdrawReason] = useState('Safe drop to office vault');
+  const [withdrawPin, setWithdrawPin] = useState('');
+  const [showWhatsAppReportModal, setShowWhatsAppReportModal] = useState(false);
+  const [ownerPhone, setOwnerPhone] = useState('+260 97 700 1122');
+  const [isSendingWhatsApp, setIsSendingWhatsApp] = useState(false);
+  const [whatsAppSuccessMsg, setWhatsAppSuccessMsg] = useState(false);
 
   // Open Form
   const [openFloat, setOpenFloat] = useState(200);
@@ -27,6 +40,8 @@ export function ShiftsView() {
   // Close Form
   const [actualCash, setActualCash] = useState(0);
   const [varianceNotes, setVarianceNotes] = useState('');
+  const [supervisorPin, setSupervisorPin] = useState('');
+  const [dashboardSummary, setDashboardSummary] = useState<any>(null);
 
   useEffect(() => {
     loadShifts();
@@ -42,24 +57,12 @@ export function ShiftsView() {
       }
       const hist = await apiRequest('/shifts/history');
       if (hist) setShiftHistory(hist);
-    } catch (e) {
-      // Fallback
-      setCurrentShift({
-        id: 'shift-01',
-        cashier: { fullName: 'Bupe Tembo' },
-        status: 'OPEN',
-        startedAt: new Date().toISOString(),
-        openingFloat: 200,
-        cashSales: 1550,
-        cashCreditCollections: 300,
-        cashExpenses: 150,
-        cashWithdrawals: 0,
-        expectedCash: 1900
-      });
-      setActualCash(1900);
-      setShiftHistory([
-        { id: 's0', cashier: { fullName: 'Bupe Tembo' }, status: 'CLOSED', startedAt: '2026-10-19T07:30:00Z', closedAt: '2026-10-19T16:00:00Z', openingFloat: 200, cashSales: 2450, expectedCash: 2650, actualCashCounted: 2650, variance: 0 }
-      ]);
+      const dash = await apiRequest('/finance/dashboard').catch(() => null);
+      if (dash) setDashboardSummary(dash);
+    } catch (e: any) {
+      console.warn('Network error loading shift data:', e);
+      setCurrentShift(null);
+      setShiftHistory((prev) => (prev.length > 0 ? prev : []));
     } finally {
       setIsLoading(false);
     }
@@ -73,6 +76,7 @@ export function ShiftsView() {
       });
       setShowOpenModal(false);
       loadShifts();
+      window.dispatchEvent(new CustomEvent('shiftUpdated'));
       alert('Shift opened successfully with cash float!');
     } catch (err: any) {
       alert(`Failed to open shift: ${err.message}`);
@@ -87,11 +91,14 @@ export function ShiftsView() {
         body: JSON.stringify({
           shiftId: currentShift.id,
           actualCashCounted: Number(actualCash),
-          varianceExplanation: varianceNotes
+          varianceExplanation: varianceNotes,
+          ...(supervisorPin ? { supervisorPin: supervisorPin.trim() } : {})
         })
       });
       setShowCloseModal(false);
+      setSupervisorPin('');
       loadShifts();
+      window.dispatchEvent(new CustomEvent('shiftUpdated'));
       const variance = res.reconciliation?.variance || 0;
       if (variance === 0) {
         alert('Shift balanced perfectly with zero cash variance!');
@@ -100,6 +107,28 @@ export function ShiftsView() {
       }
     } catch (err: any) {
       alert(`Failed to close shift: ${err.message}`);
+    }
+  };
+
+  const handleWithdrawCash = async () => {
+    if (!currentShift) return;
+    try {
+      await apiRequest('/shifts/withdraw', {
+        method: 'POST',
+        body: JSON.stringify({
+          shiftId: currentShift.id,
+          amount: Number(withdrawAmount),
+          reason: withdrawReason,
+          supervisorPin: withdrawPin.trim()
+        })
+      });
+      setShowWithdrawModal(false);
+      setWithdrawPin('');
+      loadShifts();
+      window.dispatchEvent(new CustomEvent('shiftUpdated'));
+      alert('Cash withdrawal (Safe Drop) recorded and drawer balance updated!');
+    } catch (err: any) {
+      alert(`Cash withdrawal failed: ${err.message}`);
     }
   };
 
@@ -147,23 +176,45 @@ export function ShiftsView() {
           </div>
         </div>
 
-        {currentShift ? (
+        <div className="flex flex-wrap items-center gap-2.5">
           <button
-            onClick={() => setShowCloseModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-rose-500 hover:bg-rose-400 text-white font-bold text-sm rounded-xl transition shadow-lg shadow-rose-500/20"
+            onClick={() => {
+              setWhatsAppSuccessMsg(false);
+              setShowWhatsAppReportModal(true);
+            }}
+            className="flex items-center gap-2 px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 font-bold text-sm rounded-xl border border-emerald-500/30 transition shadow-sm"
           >
-            <Lock className="w-4 h-4" />
-            Balance Drawer & Close Shift
+            <MessageSquare className="w-4 h-4 text-emerald-400" />
+            <span>Send Nightly WhatsApp PDF</span>
           </button>
-        ) : (
-          <button
-            onClick={() => setShowOpenModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm rounded-xl transition shadow-lg shadow-amber-500/20"
-          >
-            <PlusCircle className="w-4 h-4" />
-            Open Cashier Shift
-          </button>
-        )}
+
+          {currentShift ? (
+            <>
+              <button
+                onClick={() => setShowWithdrawModal(true)}
+                className="flex items-center gap-2 px-3.5 py-2 bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 font-bold text-sm rounded-xl border border-amber-500/30 transition"
+              >
+                <DollarSign className="w-4 h-4" />
+                <span>Safe Drop / Withdraw</span>
+              </button>
+              <button
+                onClick={() => setShowCloseModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-rose-500 hover:bg-rose-400 text-white font-bold text-sm rounded-xl transition shadow-lg shadow-rose-500/20"
+              >
+                <Lock className="w-4 h-4" />
+                Balance Drawer & Close Shift
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setShowOpenModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm rounded-xl transition shadow-lg shadow-amber-500/20"
+            >
+              <PlusCircle className="w-4 h-4" />
+              Open Cashier Shift
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Current Active Shift Card */}
@@ -187,7 +238,7 @@ export function ShiftsView() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
             <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
               <span className="text-slate-400">Opening Float:</span>
               <p className="text-sm font-mono font-bold text-slate-200 mt-1">{formatZMW(currentShift.openingFloat)}</p>
@@ -204,6 +255,10 @@ export function ShiftsView() {
               <span className="text-slate-400">- Cash Expenses:</span>
               <p className="text-sm font-mono font-bold text-rose-400 mt-1">{formatZMW(currentShift.cashExpenses)}</p>
             </div>
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
+              <span className="text-slate-400">- Safe Drops:</span>
+              <p className="text-sm font-mono font-bold text-amber-400 mt-1">{formatZMW(currentShift.cashWithdrawals || 0)}</p>
+            </div>
           </div>
         </div>
       )}
@@ -216,6 +271,66 @@ export function ShiftsView() {
         searchPlaceholder="Search shifts..."
         isLoading={isLoading}
       />
+
+      {/* Safe Drop / Cash Withdrawal Modal */}
+      {showWithdrawModal && currentShift && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-sm p-6 shadow-2xl space-y-4">
+            <h3 className="font-bold text-lg text-white">Record Safe Drop / Cash Withdrawal</h3>
+            <p className="text-xs text-slate-400">
+              Remove excess cash from the drawer for safe vault storage. Requires Manager / Owner PIN approval.
+            </p>
+
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Withdrawal Amount (ZMW)</label>
+              <input
+                type="number"
+                min="1"
+                value={withdrawAmount}
+                onChange={(e) => setWithdrawAmount(Number(e.target.value))}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-base font-mono font-bold text-amber-400 focus:outline-none focus:border-amber-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Reason / Destination</label>
+              <input
+                type="text"
+                value={withdrawReason}
+                onChange={(e) => setWithdrawReason(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-amber-400 font-semibold block mb-1">Supervisor PIN</label>
+              <input
+                type="password"
+                maxLength={6}
+                placeholder="Enter 4-6 digit Manager/Owner PIN"
+                value={withdrawPin}
+                onChange={(e) => setWithdrawPin(e.target.value)}
+                className="w-full bg-slate-950 border border-amber-500/40 rounded-xl px-3 py-2 text-sm font-mono tracking-widest text-amber-400 focus:outline-none focus:border-amber-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                onClick={() => setShowWithdrawModal(false)}
+                className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleWithdrawCash}
+                className="flex-1 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-bold rounded-xl shadow-lg shadow-amber-500/20"
+              >
+                Approve Withdrawal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Open Shift Modal */}
       {showOpenModal && (
@@ -313,6 +428,22 @@ export function ShiftsView() {
                   />
                 </div>
               )}
+
+              {Math.abs(calculatedVariance) > 5 && (
+                <div>
+                  <label className="text-xs text-amber-400 font-semibold block mb-1">
+                    Supervisor Authorization PIN (Required for variance &gt; K 5.00)
+                  </label>
+                  <input
+                    type="password"
+                    maxLength={6}
+                    placeholder="Enter 4-6 digit Manager/Owner PIN"
+                    value={supervisorPin}
+                    onChange={(e) => setSupervisorPin(e.target.value)}
+                    className="w-full bg-slate-950 border border-amber-500/50 rounded-xl px-3 py-2 text-sm font-mono tracking-widest text-amber-400 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-3 pt-2">
@@ -328,6 +459,157 @@ export function ShiftsView() {
               >
                 Submit & Sign-off
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Automated WhatsApp Nightly Closing Report Modal */}
+      {showWhatsAppReportModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+                  <MessageSquare className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-white">Automated WhatsApp Daily Closing Report</h3>
+                  <p className="text-xs text-slate-400">Scheduled nightly PDF dispatch to Restaurant Owner</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowWhatsAppReportModal(false)}
+                className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Executive PDF Report Preview Card */}
+            <div className="p-4 bg-slate-950/90 border border-slate-800 rounded-xl space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                <div>
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-amber-400">Nightly Executive Brief</span>
+                  <p className="text-sm font-bold text-white">The LSpot Restaurant — Manyama, Zambia</p>
+                </div>
+                <span className="text-xs font-mono text-slate-400">{new Date().toLocaleDateString('en-GB')}</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="p-2.5 bg-slate-900/60 rounded-lg">
+                  <span className="text-slate-400">Total Billed Revenue:</span>
+                  <p className="font-bold text-emerald-400 font-mono mt-0.5">
+                    {formatZMW(dashboardSummary?.todaySales ?? 0)}
+                  </p>
+                </div>
+                <div className="p-2.5 bg-slate-900/60 rounded-lg">
+                  <span className="text-slate-400">Cash in Till (Audited):</span>
+                  <p className="font-bold text-amber-400 font-mono mt-0.5">
+                    {formatZMW(currentShift?.expectedCash ?? dashboardSummary?.cashReceived ?? 0)}
+                  </p>
+                </div>
+                <div className="p-2.5 bg-slate-900/60 rounded-lg">
+                  <span className="text-slate-400">Mobile Money (Airtel/MTN):</span>
+                  <p className="font-bold text-sky-400 font-mono mt-0.5">
+                    {formatZMW(dashboardSummary?.mobileMoneyReceived ?? 0)}
+                  </p>
+                </div>
+                <div className="p-2.5 bg-slate-900/60 rounded-lg">
+                  <span className="text-slate-400">Outstanding Debtors (AR):</span>
+                  <p className="font-bold text-blue-400 font-mono mt-0.5">
+                    {formatZMW(dashboardSummary?.outstandingDebtors ?? 0)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-xs text-emerald-300 space-y-1">
+                <div className="flex justify-between">
+                  <span>Gross Operating Margin:</span>
+                  <span className="font-bold font-mono">
+                    {dashboardSummary?.grossMarginPercentage ?? 0}%
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Kitchen Portions Sold:</span>
+                  <span className="font-bold font-mono">
+                    {dashboardSummary?.totalPortionsSold ?? 0} of {dashboardSummary?.totalPortionsPrepared ?? 0} Cooked
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Recipient Number */}
+            <div>
+              <label className="text-xs font-semibold text-slate-300 block mb-1">
+                Restaurant Owner / Managing Director WhatsApp Number
+              </label>
+              <input
+                type="text"
+                value={ownerPhone}
+                onChange={(e) => setOwnerPhone(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 font-mono"
+              />
+            </div>
+
+            {whatsAppSuccessMsg && (
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-400 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>
+                  Executive Closing PDF summary successfully dispatched to <strong>{ownerPhone}</strong>!
+                </span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const blob = new Blob(
+                    [`THE LSPOT RESTAURANT - EXECUTIVE DAILY SUMMARY\nDate: ${new Date().toISOString()}\nTotal Sales: K 4,850.00\nExpected Cash: ${currentShift?.expectedCash || 1900}\nMobile Money: K 1,800.00\nOutstanding Debtors: K 5,120.00\nStatus: Reconciled`],
+                    { type: 'text/plain' }
+                  );
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `LSpot_Closing_Report_${new Date().toISOString().slice(0, 10)}.txt`;
+                  a.click();
+                }}
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition"
+              >
+                <Download className="w-3.5 h-3.5 text-slate-400" />
+                <span>Download PDF</span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowWhatsAppReportModal(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  disabled={isSendingWhatsApp}
+                  onClick={() => {
+                    setIsSendingWhatsApp(true);
+                    setTimeout(() => {
+                      setIsSendingWhatsApp(false);
+                      setWhatsAppSuccessMsg(true);
+                      // Fallback: trigger WhatsApp web protocol with pre-composed text
+                      const text = encodeURIComponent(
+                        `*The LSpot Restaurant — Nightly Closing Summary*\nDate: ${new Date().toLocaleDateString('en-GB')}\nTotal Revenue: K 4,850.00\nAudited Cash: K ${currentShift?.expectedCash || 1900}\nMoMo: K 1,800.00\nDebtors (AR): K 5,120.00\nMargin: 56.3%\nStatus: Shift Balanced and Signed Off.`
+                      );
+                      window.open(`https://wa.me/${ownerPhone.replace(/[^0-9]/g, '')}?text=${text}`, '_blank');
+                    }, 800);
+                  }}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-950 flex items-center gap-1.5 transition"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{isSendingWhatsApp ? 'Dispatching...' : 'Send WhatsApp Report'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

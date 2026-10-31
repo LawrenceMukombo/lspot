@@ -9,7 +9,18 @@ import {
 } from 'lucide-react';
 import { apiRequest } from '../api.js';
 import { EnterpriseTable, Column } from '../components/EnterpriseTable.js';
-import { formatZMW } from '@lspot/shared';
+import { formatZMW, UnitOfMeasure, StockCategoryType } from '@lspot/shared';
+import { DetailDrawer, DetailStat, DetailSection, DetailRows, FormModal, btn, inputCls, labelCls } from '../components/DetailDrawer.js';
+
+const emptyStockForm = {
+  name: '',
+  sku: '',
+  category: StockCategoryType.RAW_INGREDIENT as string,
+  unitOfMeasure: UnitOfMeasure.KILOGRAM as string,
+  reorderLevel: 5,
+  initialQuantity: 0,
+  unitCost: 0
+};
 
 export function InventoryView() {
   const [items, setItems] = useState<any[]>([]);
@@ -30,6 +41,103 @@ export function InventoryView() {
   const [transferItemId, setTransferItemId] = useState('');
   const [transferQty, setTransferQty] = useState(10);
 
+  // Detail drawer + CRUD forms
+  const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [stockFormMode, setStockFormMode] = useState<'CREATE' | 'EDIT' | null>(null);
+  const [stockForm, setStockForm] = useState<any>(emptyStockForm);
+  const [showAdjustModal, setShowAdjustModal] = useState(false);
+  const [adjustCount, setAdjustCount] = useState(0);
+  const [adjustReason, setAdjustReason] = useState('Physical stock count');
+  const [adjustPin, setAdjustPin] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const openCreate = () => {
+    setStockForm(emptyStockForm);
+    setStockFormMode('CREATE');
+  };
+
+  const openEdit = (item: any) => {
+    setStockForm({
+      name: item.name,
+      sku: item.sku,
+      unitOfMeasure: item.unitOfMeasure,
+      reorderLevel: Number(item.reorderLevel)
+    });
+    setStockFormMode('EDIT');
+  };
+
+  const handleSaveStockItem = async () => {
+    if (!stockForm.name || stockForm.name.trim().length < 2) return alert('Item name is required');
+    if (!stockForm.sku || stockForm.sku.trim().length < 2) return alert('SKU / Code is required');
+    setSaving(true);
+    try {
+      if (stockFormMode === 'CREATE') {
+        await apiRequest('/inventory/items', {
+          method: 'POST',
+          body: JSON.stringify({
+            ...stockForm,
+            reorderLevel: Number(stockForm.reorderLevel),
+            initialQuantity: Number(stockForm.initialQuantity),
+            unitCost: Number(stockForm.unitCost)
+          })
+        });
+      } else if (selectedItem) {
+        await apiRequest(`/inventory/items/${selectedItem.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: stockForm.name,
+            sku: stockForm.sku,
+            unitOfMeasure: stockForm.unitOfMeasure,
+            reorderLevel: Number(stockForm.reorderLevel)
+          })
+        });
+      }
+      setStockFormMode(null);
+      setSelectedItem(null);
+      loadInventory();
+    } catch (err: any) {
+      alert(`Save failed: ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeactivate = async (item: any) => {
+    if (!confirm(`Deactivate "${item.name}"? It will be hidden from stock lists but its movement history is preserved.`)) return;
+    try {
+      await apiRequest(`/inventory/items/${item.id}`, { method: 'DELETE' });
+      setSelectedItem(null);
+      loadInventory();
+    } catch (err: any) {
+      alert(`Deactivation failed: ${err.message}`);
+    }
+  };
+
+  const handleAdjust = async () => {
+    if (!selectedItem) return;
+    if (!/^\d{4,6}$/.test(adjustPin)) return alert('Supervisor PIN (4-6 digits) is required');
+    setSaving(true);
+    try {
+      await apiRequest('/inventory/adjust', {
+        method: 'POST',
+        body: JSON.stringify({
+          stockItemId: selectedItem.id,
+          countedQuantity: Number(adjustCount),
+          reason: adjustReason,
+          supervisorPin: adjustPin
+        })
+      });
+      setShowAdjustModal(false);
+      setSelectedItem(null);
+      setAdjustPin('');
+      loadInventory();
+    } catch (err: any) {
+      alert(`Adjustment failed: ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   useEffect(() => {
     loadInventory();
   }, []);
@@ -41,17 +149,10 @@ export function InventoryView() {
       if (data) setItems(data);
       const movs = await apiRequest('/inventory/movements');
       if (movs) setMovements(movs);
-    } catch (e) {
-      // Fallback sample data
-      setItems([
-        { id: 'i1', sku: 'ING-MM-01', name: 'Mealie Meal (Breakfast)', category: { name: 'Raw Ingredients' }, unitOfMeasure: 'kg', currentStock: 250, averageUnitCost: 12.0, totalValue: 3000.0, reorderLevel: 20, isLowStock: false },
-        { id: 'i2', sku: 'ING-CHK-01', name: 'Fresh Chicken', category: { name: 'Raw Ingredients' }, unitOfMeasure: 'kg', currentStock: 80, averageUnitCost: 45.0, totalValue: 3600.0, reorderLevel: 15, isLowStock: false },
-        { id: 'i3', sku: 'ING-BEEF-01', name: 'Fresh Beef (Stewing)', category: { name: 'Raw Ingredients' }, unitOfMeasure: 'kg', currentStock: 60, averageUnitCost: 55.0, totalValue: 3300.0, reorderLevel: 15, isLowStock: false },
-        { id: 'i4', sku: 'ING-FISH-01', name: 'Bream Fish (Frozen)', category: { name: 'Raw Ingredients' }, unitOfMeasure: 'kg', currentStock: 50, averageUnitCost: 60.0, totalValue: 3000.0, reorderLevel: 10, isLowStock: false },
-        { id: 'i5', sku: 'ING-OIL-01', name: 'Cooking Oil', category: { name: 'Raw Ingredients' }, unitOfMeasure: 'l', currentStock: 8, averageUnitCost: 35.0, totalValue: 280.0, reorderLevel: 10, isLowStock: true },
-        { id: 'i6', sku: 'BEV-COKE-350', name: 'Coca Cola 350ml Glass', category: { name: 'Direct Resale Beverages' }, unitOfMeasure: 'pcs', currentStock: 120, averageUnitCost: 10.0, totalValue: 1200.0, reorderLevel: 24, isLowStock: false },
-        { id: 'i7', sku: 'BEV-WATER-500', name: 'Natural Mineral Water 500ml', category: { name: 'Direct Resale Beverages' }, unitOfMeasure: 'pcs', currentStock: 150, averageUnitCost: 5.0, totalValue: 750.0, reorderLevel: 30, isLowStock: false }
-      ]);
+    } catch (e: any) {
+      console.warn('Network error loading inventory items:', e);
+      setItems((prev) => (prev.length > 0 ? prev : []));
+      setMovements((prev) => (prev.length > 0 ? prev : []));
     } finally {
       setIsLoading(false);
     }
@@ -175,6 +276,15 @@ export function InventoryView() {
 
         <div className="flex flex-wrap items-center gap-2.5">
           <button
+            id="inventory-new-item"
+            onClick={openCreate}
+            className="flex items-center gap-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm rounded-xl border border-slate-700 transition"
+          >
+            <PlusCircle className="w-4 h-4 text-amber-400" />
+            New Stock Item
+          </button>
+
+          <button
             onClick={() => setShowReceiveModal(true)}
             className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm rounded-xl transition shadow-lg shadow-amber-500/20"
           >
@@ -219,6 +329,7 @@ export function InventoryView() {
           title="Stock Master List & Valuations"
           searchPlaceholder="Search stock items or SKU..."
           isLoading={isLoading}
+          onRowClick={(row) => setSelectedItem(row)}
         />
       ) : (
         <EnterpriseTable
@@ -227,8 +338,179 @@ export function InventoryView() {
           title="Append-Only Perpetual Stock Movement History"
           searchPlaceholder="Search movements by item or event..."
           isLoading={isLoading}
+          onRowClick={(row) => {
+            const item = items.find((i) => i.id === row.stockItemId);
+            if (item) setSelectedItem(item);
+          }}
         />
       )}
+
+      {/* Stock Item Detail Drawer */}
+      <DetailDrawer
+        open={!!selectedItem && !stockFormMode && !showAdjustModal}
+        onClose={() => setSelectedItem(null)}
+        title={selectedItem?.name || ''}
+        subtitle={`SKU ${selectedItem?.sku || ''} • ${selectedItem?.category?.name || 'Uncategorised'}`}
+        icon={<Package className="w-5 h-5" />}
+        badge={
+          selectedItem?.isLowStock ? (
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase bg-rose-500/10 text-rose-400">Reorder Needed</span>
+          ) : (
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase bg-emerald-500/10 text-emerald-400">Optimal</span>
+          )
+        }
+        actions={
+          <>
+            <button id="inventory-detail-deactivate" className={btn.danger} onClick={() => handleDeactivate(selectedItem)}>Deactivate</button>
+            <button id="inventory-detail-adjust" className={btn.secondary} onClick={() => { setAdjustCount(Number(selectedItem.currentStock)); setShowAdjustModal(true); }}>
+              <Sliders className="w-4 h-4 text-amber-400" /> Physical Count
+            </button>
+            <button id="inventory-detail-edit" className={btn.secondary} onClick={() => openEdit(selectedItem)}>Edit</button>
+            <button id="inventory-detail-receive" className={btn.primary} onClick={() => { setReceiveItemId(selectedItem.id); setReceiveUnitCost(Number(selectedItem.averageUnitCost) || 1); setSelectedItem(null); setShowReceiveModal(true); }}>
+              <PlusCircle className="w-4 h-4" /> Receive
+            </button>
+          </>
+        }
+      >
+        {selectedItem && (() => {
+          const itemMovements = movements.filter((m) => m.stockItemId === selectedItem.id);
+          const stock = Number(selectedItem.currentStock);
+          const reorder = Number(selectedItem.reorderLevel);
+          const pct = reorder > 0 ? Math.min(100, Math.round((stock / (reorder * 3)) * 100)) : 100;
+          return (
+            <>
+              <div className="grid grid-cols-2 gap-2.5">
+                <DetailStat label="Current Stock" value={`${stock} ${selectedItem.unitOfMeasure}`} tone={selectedItem.isLowStock ? 'bad' : 'default'} />
+                <DetailStat label="Reorder Level" value={`${reorder} ${selectedItem.unitOfMeasure}`} tone="warn" />
+                <DetailStat label="WAC Unit Cost" value={formatZMW(selectedItem.averageUnitCost)} />
+                <DetailStat label="Total Value" value={formatZMW(selectedItem.totalValue)} tone="good" />
+              </div>
+              <div>
+                <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+                  <div className={`h-full ${selectedItem.isLowStock ? 'bg-rose-500' : 'bg-emerald-500'}`} style={{ width: `${pct}%` }} />
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">Stock cover vs 3× reorder level</p>
+              </div>
+              <DetailSection title="Item Master Data">
+                <DetailRows
+                  rows={[
+                    ['SKU / Code', <span className="font-mono text-amber-400">{selectedItem.sku}</span>],
+                    ['Unit of measure', selectedItem.unitOfMeasure],
+                    ['Category', selectedItem.category?.name || '—'],
+                    ['Barcode', selectedItem.barcode || '—'],
+                    ['Created', selectedItem.createdAt ? new Date(selectedItem.createdAt).toLocaleString('en-GB', { timeZone: 'Africa/Lusaka' }) : '—'],
+                    ['Last updated', selectedItem.updatedAt ? new Date(selectedItem.updatedAt).toLocaleString('en-GB', { timeZone: 'Africa/Lusaka' }) : '—']
+                  ]}
+                />
+              </DetailSection>
+              <DetailSection title={`Recent Movements (${itemMovements.length})`}>
+                {itemMovements.length === 0 ? (
+                  <p className="text-sm text-slate-500 bg-slate-950/40 border border-dashed border-slate-800 rounded-xl p-4 text-center">No stock movements recorded yet.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {itemMovements.slice(0, 15).map((m) => (
+                      <li key={m.id} className="bg-slate-950/40 border border-slate-800 rounded-xl p-3 text-sm">
+                        <div className="flex justify-between gap-2">
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-800 text-amber-400">{m.movementType}</span>
+                          <span className={`font-mono font-bold ${Number(m.quantity) < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                            {Number(m.quantity) > 0 ? '+' : ''}{Number(m.quantity)} {selectedItem.unitOfMeasure}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-xs text-slate-400 mt-1">
+                          <span>{new Date(m.createdAt).toLocaleString('en-GB', { timeZone: 'Africa/Lusaka' })}</span>
+                          <span className="font-mono">{formatZMW(m.totalValue)}</span>
+                        </div>
+                        {(m.notes || m.referenceId) && <p className="text-xs text-slate-300 mt-1 break-words">{m.notes || m.referenceId}</p>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </DetailSection>
+            </>
+          );
+        })()}
+      </DetailDrawer>
+
+      {/* Create / Edit Stock Item */}
+      <FormModal
+        open={!!stockFormMode}
+        title={stockFormMode === 'CREATE' ? 'New Stock Item' : `Edit ${selectedItem?.name || 'Stock Item'}`}
+        subtitle={stockFormMode === 'CREATE' ? 'Opening balance is recorded at the given unit cost.' : 'Quantities change only via Receive, Issue or Physical Count to keep the ledger auditable.'}
+        onClose={() => setStockFormMode(null)}
+        onSubmit={handleSaveStockItem}
+        submitting={saving}
+        submitLabel={stockFormMode === 'CREATE' ? 'Create Item' : 'Save Changes'}
+      >
+        <div>
+          <label htmlFor="stock-name" className={labelCls}>Item name</label>
+          <input id="stock-name" className={inputCls} value={stockForm.name} onChange={(e) => setStockForm({ ...stockForm, name: e.target.value })} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label htmlFor="stock-sku" className={labelCls}>SKU / Code</label>
+            <input id="stock-sku" className={`${inputCls} font-mono`} value={stockForm.sku} onChange={(e) => setStockForm({ ...stockForm, sku: e.target.value.toUpperCase() })} />
+          </div>
+          <div>
+            <label htmlFor="stock-uom" className={labelCls}>Unit of measure</label>
+            <select id="stock-uom" className={inputCls} value={stockForm.unitOfMeasure} onChange={(e) => setStockForm({ ...stockForm, unitOfMeasure: e.target.value })}>
+              {Object.values(UnitOfMeasure).map((u) => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+        </div>
+        {stockFormMode === 'CREATE' && (
+          <div>
+            <label htmlFor="stock-category" className={labelCls}>Category type</label>
+            <select id="stock-category" className={inputCls} value={stockForm.category} onChange={(e) => setStockForm({ ...stockForm, category: e.target.value })}>
+              {Object.values(StockCategoryType).map((c) => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+            </select>
+          </div>
+        )}
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label htmlFor="stock-reorder" className={labelCls}>Reorder level</label>
+            <input id="stock-reorder" type="number" min="0" className={inputCls} value={stockForm.reorderLevel} onChange={(e) => setStockForm({ ...stockForm, reorderLevel: e.target.value })} />
+          </div>
+          {stockFormMode === 'CREATE' && (
+            <>
+              <div>
+                <label htmlFor="stock-opening" className={labelCls}>Opening qty</label>
+                <input id="stock-opening" type="number" min="0" className={inputCls} value={stockForm.initialQuantity} onChange={(e) => setStockForm({ ...stockForm, initialQuantity: e.target.value })} />
+              </div>
+              <div>
+                <label htmlFor="stock-cost" className={labelCls}>Unit cost (K)</label>
+                <input id="stock-cost" type="number" min="0" step="0.01" className={inputCls} value={stockForm.unitCost} onChange={(e) => setStockForm({ ...stockForm, unitCost: e.target.value })} />
+              </div>
+            </>
+          )}
+        </div>
+      </FormModal>
+
+      {/* Physical Count Adjustment */}
+      <FormModal
+        open={showAdjustModal}
+        title={`Physical Count — ${selectedItem?.name || ''}`}
+        subtitle={`System quantity: ${selectedItem?.currentStock ?? 0} ${selectedItem?.unitOfMeasure || ''}. Variance is posted as an auditable adjustment movement.`}
+        onClose={() => setShowAdjustModal(false)}
+        onSubmit={handleAdjust}
+        submitting={saving}
+        submitLabel="Post Adjustment"
+      >
+        <div>
+          <label htmlFor="adjust-count" className={labelCls}>Counted quantity</label>
+          <input id="adjust-count" type="number" min="0" step="0.01" className={inputCls} value={adjustCount} onChange={(e) => setAdjustCount(Number(e.target.value))} />
+          <p className="text-xs mt-1 text-slate-400">
+            Variance: <span className={`font-mono font-bold ${adjustCount - Number(selectedItem?.currentStock || 0) < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{(adjustCount - Number(selectedItem?.currentStock || 0)).toFixed(2)}</span>
+          </p>
+        </div>
+        <div>
+          <label htmlFor="adjust-reason" className={labelCls}>Reason</label>
+          <input id="adjust-reason" className={inputCls} value={adjustReason} onChange={(e) => setAdjustReason(e.target.value)} />
+        </div>
+        <div>
+          <label htmlFor="adjust-pin" className={labelCls}>Supervisor PIN</label>
+          <input id="adjust-pin" type="password" inputMode="numeric" maxLength={6} className={`${inputCls} font-mono`} value={adjustPin} onChange={(e) => setAdjustPin(e.target.value.replace(/\D/g, ''))} />
+        </div>
+      </FormModal>
 
       {/* Receive Goods Modal */}
       {showReceiveModal && (

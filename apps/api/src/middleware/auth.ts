@@ -15,7 +15,13 @@ export interface RequestWithUser extends Request {
   user?: AuthenticatedUser;
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'lspot-restaurant-super-secret-jwt-key-2026';
+export function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret && process.env.NODE_ENV === 'production') {
+    throw new Error('CRITICAL: JWT_SECRET environment variable must be configured in production.');
+  }
+  return secret || 'lspot-restaurant-super-secret-jwt-key-2026';
+}
 
 export function authenticate(req: RequestWithUser, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
@@ -41,7 +47,7 @@ export function authenticate(req: RequestWithUser, res: Response, next: NextFunc
 
   const token = authHeader.split(' ')[1];
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as AuthenticatedUser;
+    const decoded = jwt.verify(token, getJwtSecret()) as AuthenticatedUser;
     req.user = decoded;
     next();
   } catch (err) {
@@ -72,5 +78,39 @@ export function requireRole(...allowedRoles: UserRole[]) {
     }
 
     next();
+  };
+}
+
+const authRateBuckets = new Map<string, { count: number; resetAt: number }>();
+
+export function rateLimitAuth(maxAttempts = 12, windowMs = 5 * 60 * 1000) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (process.env.NODE_ENV === 'test') {
+      return next();
+    }
+    const clientIp = String(req.headers['x-forwarded-for'] || req.ip || req.socket.remoteAddress || 'unknown')
+      .split(',')[0]
+      .trim();
+    const bucketKey = `${clientIp}:${req.path}`;
+    const now = Date.now();
+    const entry = authRateBuckets.get(bucketKey);
+
+    if (!entry || now > entry.resetAt) {
+      authRateBuckets.set(bucketKey, { count: 1, resetAt: now + windowMs });
+      return next();
+    }
+
+    entry.count += 1;
+    if (entry.count > maxAttempts) {
+      const retryAfterSec = Math.ceil((entry.resetAt - now) / 1000);
+      res.setHeader('Retry-After', String(retryAfterSec));
+      return res.status(429).json({
+        success: false,
+        message: `Too many authentication attempts. Please wait ${retryAfterSec} seconds before trying again.`,
+        code: 'RATE_LIMITED'
+      });
+    }
+
+    return next();
   };
 }

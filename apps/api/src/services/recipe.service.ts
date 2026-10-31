@@ -71,9 +71,9 @@ export class RecipeService {
     return recipe;
   }
 
-  async scaleRecipe(recipeId: string, targetPortions: number) {
-    const recipe = await prisma.recipe.findUnique({
-      where: { id: recipeId },
+  async scaleRecipe(tenantId: string, recipeId: string, targetPortions: number) {
+    const recipe = await prisma.recipe.findFirst({
+      where: { id: recipeId, tenantId },
       include: {
         recipeIngredients: {
           include: { stockItem: true }

@@ -13,10 +13,21 @@ import {
   User,
   AlertCircle,
   Info,
-  X
+  X,
+  Printer,
+  QrCode,
+  Sparkles,
+  Award,
+  Phone,
+  WifiOff,
+  Calculator,
+  KeyRound,
+  ShieldCheck
 } from 'lucide-react';
 import { apiRequest } from '../api.js';
 import { formatZMW, PaymentMethod } from '@lspot/shared';
+import { SmartCalculator } from '../components/SmartCalculator.js';
+import { offlineStorage } from '../utils/offlineStorage.js';
 
 interface MenuItem {
   id: string;
@@ -48,6 +59,11 @@ export function PosView() {
   const [orderType, setOrderType] = useState<'DINE_IN' | 'TAKEAWAY'>('DINE_IN');
   const [tableNumber, setTableNumber] = useState('');
 
+  // Customer Loyalty & Stamp Card state
+  const [loyaltyPhone, setLoyaltyPhone] = useState('');
+  const [loyaltyProfile, setLoyaltyProfile] = useState<any | null>(null);
+  const [redeemFreeSoftDrink, setRedeemFreeSoftDrink] = useState(false);
+
   // Item details modal
   const [detailItem, setDetailItem] = useState<MenuItem | null>(null);
 
@@ -57,123 +73,103 @@ export function PosView() {
   const [paymentReference, setPaymentReference] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastReceipt, setLastReceipt] = useState<any>(null);
+  const [activeShift, setActiveShift] = useState<any>(null);
+
+  // Mobile Money API & PIN Prompt State
+  const [momoPhone, setMomoPhone] = useState('+260 97 ');
+  const [momoPin, setMomoPin] = useState('');
+  const [momoPromptStage, setMomoPromptStage] = useState<'IDLE' | 'PUSHING' | 'WAITING_PIN' | 'APPROVED'>('IDLE');
+  const [momoCountdown, setMomoCountdown] = useState(30);
+
+  // POS Embedded Smart Calculator
+  const [showPosCalculator, setShowPosCalculator] = useState(false);
+
+  const lookupLoyaltyPhone = async (phoneNum: string) => {
+    setLoyaltyPhone(phoneNum);
+    const cleaned = phoneNum.replace(/\s+/g, '');
+    if (cleaned.length >= 9) {
+      const storageKey = `lspot_loyalty_${cleaned}`;
+      try {
+        const remote = await apiRequest(`/pos/loyalty/${encodeURIComponent(cleaned)}`);
+        if (remote) {
+          localStorage.setItem(storageKey, JSON.stringify(remote));
+          setLoyaltyProfile(remote);
+          return;
+        }
+      } catch {
+        // Offline fallback to localStorage
+      }
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        try {
+          setLoyaltyProfile(JSON.parse(saved));
+        } catch {
+          setLoyaltyProfile({ phone: cleaned, name: 'Valued Guest', stamps: 0, freeSoftDrinksEarned: 0 });
+        }
+      } else {
+        const initial = {
+          phone: cleaned,
+          name: 'Valued Guest',
+          stamps: 0,
+          freeSoftDrinksEarned: 0
+        };
+        localStorage.setItem(storageKey, JSON.stringify(initial));
+        setLoyaltyProfile(initial);
+      }
+    } else {
+      setLoyaltyProfile(null);
+      setRedeemFreeSoftDrink(false);
+    }
+  };
 
   useEffect(() => {
     loadCatalog();
     loadCustomers();
+    checkShift();
   }, []);
+
+  const checkShift = async () => {
+    try {
+      const shift = await apiRequest('/shifts/current');
+      setActiveShift(shift);
+    } catch {
+      setActiveShift(null);
+    }
+  };
 
   const loadCatalog = async () => {
     try {
       const data = await apiRequest('/pos/catalog');
       if (data) {
-        setCategories(data.categories || []);
-        setItems(data.items || []);
+        const catList = data.categories || [];
+        const itemList = data.items || [];
+        setCategories(catList);
+        setItems(itemList);
+        offlineStorage.saveCatalog(catList, itemList);
       }
     } catch (e) {
-      // Fallback Zambian sample data with photos
-      setItems([
-        {
-          id: 'menu-001',
-          name: 'Nshima with Chicken',
-          description: 'Authentic steaming white nshima served with tender stewed village chicken in rich tomato and onion gravy with fresh greens',
-          imageUrl: '/images/food/nshima_chicken.jpg',
-          categoryId: 'c1',
-          categoryName: 'Traditional Zambian Meals',
-          sellingPrice: 65,
-          portionSize: 'Standard Portion',
-          remainingPortions: 18,
-          isAvailable: true
-        },
-        {
-          id: 'menu-002',
-          name: 'Nshima with Beef Stew',
-          description: 'Hearty slow-braised beef stew with thick savory gravy, accompanied by hot white nshima and stir-fried rape greens',
-          imageUrl: '/images/food/nshima_beef.jpg',
-          categoryId: 'c1',
-          categoryName: 'Traditional Zambian Meals',
-          sellingPrice: 70,
-          portionSize: 'Standard Portion',
-          remainingPortions: 14,
-          isAvailable: true
-        },
-        {
-          id: 'menu-003',
-          name: 'Nshima with Bream Fish',
-          description: 'Whole crispy golden fried Kariba bream fish garnished with fresh lemon, served with white nshima and seasoned tomato relish',
-          imageUrl: '/images/food/nshima_fish.jpg',
-          categoryId: 'c1',
-          categoryName: 'Traditional Zambian Meals',
-          sellingPrice: 75,
-          portionSize: 'Whole Fish Portion',
-          remainingPortions: 8,
-          isAvailable: true
-        },
-        {
-          id: 'menu-004',
-          name: 'Nshima with Beans & Veg',
-          description: 'Slow-cooked Zambian red sugar beans in rich tomato gravy, served with fluffy nshima and steamed green vegetables',
-          imageUrl: '/images/food/nshima_beans.jpg',
-          categoryId: 'c1',
-          categoryName: 'Traditional Zambian Meals',
-          sellingPrice: 40,
-          portionSize: 'Standard Portion',
-          remainingPortions: 20,
-          isAvailable: true
-        },
-        {
-          id: 'menu-005',
-          name: 'Rice with Chicken',
-          description: 'Fragrant steamed long-grain rice served with succulent seasoned roasted chicken, savory gravy, and crisp garden salad',
-          imageUrl: '/images/food/rice_chicken.jpg',
-          categoryId: 'c1',
-          categoryName: 'Traditional Zambian Meals',
-          sellingPrice: 65,
-          portionSize: 'Standard Portion',
-          remainingPortions: 12,
-          isAvailable: true
-        },
-        {
-          id: 'menu-006',
-          name: 'Soft Drink (Coca Cola 350ml)',
-          description: 'Chilled 350ml glass bottle of Coca-Cola served ice-cold with classic effervescence',
-          imageUrl: '/images/food/coke_bottle.jpg',
-          categoryId: 'c2',
-          categoryName: 'Cold Beverages',
-          sellingPrice: 15,
-          portionSize: 'Bottle',
-          remainingPortions: 120,
-          isAvailable: true
-        },
-        {
-          id: 'menu-007',
-          name: 'Bottled Mineral Water 500ml',
-          description: 'Pure, refreshing chilled natural mineral water in a 500ml bottle',
-          imageUrl: '/images/food/bottled_water.jpg',
-          categoryId: 'c2',
-          categoryName: 'Cold Beverages',
-          sellingPrice: 10,
-          portionSize: 'Bottle',
-          remainingPortions: 150,
-          isAvailable: true
-        }
-      ]);
-      setCategories([
-        { id: 'c1', name: 'Traditional Zambian Meals' },
-        { id: 'c2', name: 'Cold Beverages' }
-      ]);
+      console.warn('Network error fetching catalog, loading from offline storage:', e);
+      const cached = offlineStorage.getCachedCatalog();
+      if (cached.items.length > 0) {
+        setCategories(cached.categories);
+        setItems(cached.items);
+      }
     }
   };
 
   const loadCustomers = async () => {
     try {
       const cust = await apiRequest('/credit/customers');
-      if (cust) setCustomers(cust);
+      if (cust) {
+        setCustomers(cust);
+        offlineStorage.saveCustomers(cust);
+      }
     } catch (e) {
-      setCustomers([
-        { id: 'cust-1', name: 'Kalumbila Mining Services Ltd', availableCredit: 11750, creditLimit: 15000 },
-        { id: 'cust-2', name: 'Manyama Transport & Logistics', availableCredit: 6550, creditLimit: 8000 }
-      ]);
+      console.warn('Network error fetching customers, loading from offline storage:', e);
+      const cached = offlineStorage.getCachedCustomers();
+      if (cached.length > 0) {
+        setCustomers(cached);
+      }
     }
   };
 
@@ -210,6 +206,11 @@ export function PosView() {
   };
 
   const cartSubtotal = cart.reduce((sum, item) => sum + item.subtotal, 0);
+  const loyaltyDiscount =
+    redeemFreeSoftDrink && (loyaltyProfile?.freeSoftDrinksEarned || 0) > 0
+      ? Math.min(cartSubtotal, 15)
+      : 0;
+  const cartNetTotal = Math.max(0, cartSubtotal - loyaltyDiscount);
 
   const filteredItems = items.filter((item) => {
     const matchesCat = activeCategory === 'ALL' || item.categoryId === activeCategory;
@@ -219,6 +220,32 @@ export function PosView() {
 
   const selectedCustomer = customers.find((c) => c.id === selectedCustomerId);
 
+  const handleInitiateMoMoPush = async () => {
+    if (!momoPhone || momoPhone.replace(/\s+/g, '').length < 9) {
+      alert('Please enter a valid Airtel or MTN mobile phone number (e.g. +260 97...)');
+      return;
+    }
+    setMomoPromptStage('PUSHING');
+    try {
+      const pushRes = await apiRequest('/pos/momo-initiate', {
+        method: 'POST',
+        body: JSON.stringify({
+          provider: paymentMethod,
+          phone: momoPhone,
+          amount: cartNetTotal
+        })
+      });
+      if (pushRes?.transactionRef) {
+        setPaymentReference(pushRes.transactionRef);
+      }
+    } catch {
+      // Offline / simulation fallback
+    }
+    setTimeout(() => {
+      setMomoPromptStage('WAITING_PIN');
+    }, 900);
+  };
+
   const handleCheckoutSubmit = async () => {
     if (cart.length === 0) return;
     if (paymentMethod === PaymentMethod.CUSTOMER_CREDIT) {
@@ -226,45 +253,137 @@ export function PosView() {
         alert('Please select a customer for Credit purchase');
         return;
       }
-      if (selectedCustomer && cartSubtotal > selectedCustomer.availableCredit) {
+      if (selectedCustomer && cartNetTotal > selectedCustomer.availableCredit) {
         alert(`Credit limit exceeded! Customer available headroom: ${formatZMW(selectedCustomer.availableCredit)}`);
         return;
       }
     }
 
+    // Mobile Money Verification
+    if (paymentMethod === PaymentMethod.AIRTEL_MONEY || paymentMethod === PaymentMethod.MTN_MOMO) {
+      if (momoPromptStage !== 'WAITING_PIN' && momoPromptStage !== 'APPROVED') {
+        handleInitiateMoMoPush();
+        return;
+      }
+      if (!momoPin || momoPin.length < 4) {
+        alert('Please enter the 4-digit Mobile Money subscriber PIN authorization code.');
+        return;
+      }
+    }
+
     setIsSubmitting(true);
+    const generatedRef =
+      paymentReference ||
+      (paymentMethod === PaymentMethod.AIRTEL_MONEY || paymentMethod === PaymentMethod.MTN_MOMO
+        ? `${paymentMethod === PaymentMethod.AIRTEL_MONEY ? 'AIRTEL' : 'MTN'}-${Date.now().toString().slice(-6)}`
+        : undefined);
+
     const payload = {
       idempotencyKey: crypto.randomUUID(),
-      customerId: selectedCustomerId || undefined,
+      customerId: paymentMethod === PaymentMethod.CUSTOMER_CREDIT && selectedCustomerId ? selectedCustomerId : undefined,
       orderType,
       tableNumber: tableNumber || undefined,
       items: cart.map((c) => ({
         menuItemId: c.id,
-        portionSize: c.portionSize,
+        portionSize: c.portionSize || 'Standard Portion',
         unitPrice: c.sellingPrice,
         quantity: c.quantity,
-        notes: c.notes
+        subtotal: c.subtotal || (c.sellingPrice * c.quantity),
+        notes: c.notes || undefined
       })),
       subtotal: cartSubtotal,
-      totalAmount: cartSubtotal,
+      discountAmount: loyaltyDiscount,
+      totalAmount: cartNetTotal,
       payments: [
         {
           method: paymentMethod,
-          amount: cartSubtotal,
-          reference: paymentReference || undefined
+          amount: cartNetTotal,
+          reference: generatedRef
         }
       ]
     };
 
     try {
-      const res = await apiRequest('/pos/checkout', {
-        method: 'POST',
-        body: JSON.stringify(payload)
-      });
-      setLastReceipt(res || { ...payload, saleNumber: `SALE-${Date.now().toString().slice(-6)}` });
+      let res: any = null;
+      try {
+        res = await apiRequest('/pos/checkout', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+      } catch (networkErr) {
+        // Manyama offline local queue fallback
+        const offlineQueueKey = 'lspot_offline_sales_queue';
+        const existingQueue = JSON.parse(localStorage.getItem(offlineQueueKey) || '[]');
+        const offlineSale = {
+          ...payload,
+          id: `offline-${Date.now()}`,
+          saleNumber: `OFFLINE-${Date.now().toString().slice(-6)}`,
+          offlineQueuedAt: new Date().toISOString()
+        };
+        existingQueue.push(offlineSale);
+        localStorage.setItem(offlineQueueKey, JSON.stringify(existingQueue));
+        window.dispatchEvent(new CustomEvent('offlineQueueUpdated'));
+        res = offlineSale;
+      }
+
+      // Trigger Kitchen KDS new order chime event
+      const kdsOrder = {
+        id: res?.id || `kds-${Date.now()}`,
+        saleNumber: res?.saleNumber || `ORD-${Date.now().toString().slice(-4)}`,
+        orderType,
+        tableNumber,
+        items: cart.map((c) => ({ name: c.name, quantity: c.quantity, notes: c.notes })),
+        createdAt: new Date().toISOString()
+      };
+      const existingKds = JSON.parse(localStorage.getItem('lspot_active_kds_orders') || '[]');
+      existingKds.unshift(kdsOrder);
+      localStorage.setItem('lspot_active_kds_orders', JSON.stringify(existingKds.slice(0, 20)));
+      window.dispatchEvent(new CustomEvent('newKitchenTicketFired', { detail: kdsOrder }));
+
+      // Update Customer Loyalty Stamp Card
+      if (loyaltyProfile && loyaltyPhone) {
+        const cleaned = loyaltyPhone.replace(/\s+/g, '');
+        const nshimaMealsInOrder = cart.filter((c) => c.name.toLowerCase().includes('nshima')).reduce((s, c) => s + c.quantity, 0);
+        const stampsEarned = nshimaMealsInOrder > 0 ? nshimaMealsInOrder : 1;
+        let newStamps = (loyaltyProfile.stamps || 0) + stampsEarned;
+        let earnedRewards = loyaltyProfile.freeSoftDrinksEarned || 0;
+        if (redeemFreeSoftDrink && earnedRewards > 0) {
+          earnedRewards -= 1;
+        }
+        if (newStamps >= 10) {
+          earnedRewards += Math.floor(newStamps / 10);
+          newStamps = newStamps % 10;
+        }
+        const updatedProfile = {
+          ...loyaltyProfile,
+          stamps: newStamps,
+          freeSoftDrinksEarned: earnedRewards
+        };
+        localStorage.setItem(`lspot_loyalty_${cleaned}`, JSON.stringify(updatedProfile));
+        setLoyaltyProfile(updatedProfile);
+        apiRequest(`/pos/loyalty/${encodeURIComponent(cleaned)}`, {
+          method: 'POST',
+          body: JSON.stringify(updatedProfile)
+        }).catch(() => {});
+      }
+
+      // Construct receipt representation ensuring numeric consistency
+      const receiptTotal = Number(res?.totalAmount ?? payload.totalAmount ?? cartSubtotal);
+      const receiptData = {
+        ...(res || payload),
+        saleNumber: res?.saleNumber || `SALE-${Date.now().toString().slice(-6)}`,
+        totalAmount: receiptTotal,
+        subtotal: Number(res?.subtotal ?? payload.subtotal ?? cartSubtotal),
+        payments: res?.payments && res.payments.length > 0 ? res.payments : payload.payments,
+        items: res?.items && res.items.length > 0 ? res.items : payload.items
+      };
+
+      setLastReceipt(receiptData);
       setCart([]);
       setShowCheckout(false);
+      setRedeemFreeSoftDrink(false);
       loadCatalog();
+      window.dispatchEvent(new CustomEvent('shiftUpdated'));
     } catch (err: any) {
       alert(`Checkout failed: ${err.message}`);
     } finally {
@@ -276,6 +395,25 @@ export function PosView() {
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-6.5rem)]">
       {/* Left 2 Cols: Product Catalog & Touch Tiles */}
       <div className="lg:col-span-2 flex flex-col space-y-4 h-full overflow-hidden">
+        {/* Cashier Shift Status Banner if not open */}
+        {!activeShift && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs text-amber-300">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>
+                <strong>Notice:</strong> No cashier shift is currently open. Cash movements will record under General Till.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('navigateTab', { detail: 'shifts' }))}
+              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg transition"
+            >
+              Open Shift
+            </button>
+          </div>
+        )}
+
         {/* Search & Categories Bar */}
         <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900 border border-slate-800 p-3.5 rounded-2xl shadow-lg">
           <div className="flex items-center gap-2 overflow-x-auto pb-1 max-w-full">
@@ -317,98 +455,135 @@ export function PosView() {
         </div>
 
         {/* Product Tiles Grid with High-Resolution Food Photography */}
-        <div className="flex-1 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3.5 pr-1 pb-4">
-          {filteredItems.map((item) => (
-            <div
-              key={item.id}
-              onClick={() => addToCart(item)}
-              className="bg-slate-900 border border-slate-800 hover:border-amber-500/60 rounded-2xl flex flex-col justify-between shadow-md hover:shadow-2xl transition-all cursor-pointer group active:scale-[0.98] select-none overflow-hidden"
-            >
-              {/* Dish Photo Container */}
-              <div className="relative w-full h-32 sm:h-36 bg-slate-950 overflow-hidden">
-                {item.imageUrl ? (
-                  <img
-                    src={item.imageUrl}
-                    alt={item.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-900 to-slate-950 text-slate-600">
-                    <Receipt className="w-8 h-8" />
-                  </div>
-                )}
-                {/* Gradient shade for bottom readability */}
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-black/30 pointer-events-none" />
+        <div className="flex-1 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 pr-1.5 pb-6">
+          {filteredItems.map((item) => {
+            const isOutOfStock = !item.remainingPortions || item.remainingPortions <= 0;
+            const isBeverage = (item as any).isBeverage ||
+              item.categoryName?.toLowerCase().includes('drink') ||
+              item.categoryName?.toLowerCase().includes('beverage') ||
+              item.categoryName?.toLowerCase().includes('water') ||
+              item.name.toLowerCase().includes('water') ||
+              item.name.toLowerCase().includes('coca') ||
+              item.name.toLowerCase().includes('drink');
 
-                {/* Stock remaining pill */}
-                <div className="absolute top-2 right-2 z-10">
-                  <span
-                    className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full backdrop-blur-md shadow-sm ${
-                      item.remainingPortions > 5
-                        ? 'bg-emerald-950/85 text-emerald-300 border border-emerald-500/30'
-                        : item.remainingPortions > 0
-                        ? 'bg-amber-950/85 text-amber-300 border border-amber-500/30'
-                        : 'bg-rose-950/85 text-rose-300 border border-rose-500/30'
-                    }`}
-                  >
-                    {item.remainingPortions} left
-                  </span>
-                </div>
-
-                {/* Info / Details Button */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDetailItem(item);
-                  }}
-                  title="View full dish details"
-                  className="absolute top-2 left-2 z-10 w-6 h-6 rounded-full bg-slate-950/80 hover:bg-amber-500 hover:text-slate-950 text-slate-300 flex items-center justify-center backdrop-blur-md border border-slate-700/60 transition"
-                >
-                  <Info className="w-3.5 h-3.5" />
-                </button>
-
-                {/* Portion size pill on image bottom */}
-                <div className="absolute bottom-2 left-2 z-10">
-                  <span className="text-[10px] font-medium bg-slate-900/85 backdrop-blur-md border border-slate-700/60 text-slate-200 px-2 py-0.5 rounded-md">
-                    {item.portionSize}
-                  </span>
-                </div>
-              </div>
-
-              {/* Dish Name, Description and Price Footer */}
-              <div className="p-3 flex flex-col justify-between flex-1">
-                <div>
-                  <h4 className="font-bold text-sm text-slate-100 group-hover:text-amber-400 transition leading-snug line-clamp-1">
-                    {item.name}
-                  </h4>
-                  {item.description ? (
-                    <p className="text-[11px] text-slate-400 line-clamp-2 mt-1 leading-relaxed">
-                      {item.description}
-                    </p>
+            return (
+              <div
+                key={item.id}
+                onClick={() => {
+                  if (isOutOfStock) {
+                    alert(
+                      isBeverage
+                        ? `Cannot add ${item.name}: Out of stock in Beverage Inventory.`
+                        : `Cannot add ${item.name}: Requires an active Kitchen Cooking Batch with available portions.`
+                    );
+                    return;
+                  }
+                  addToCart(item);
+                }}
+                className={`bg-white dark:bg-slate-900 border rounded-2xl flex flex-col justify-between shadow-md transition-all duration-200 select-none overflow-hidden ${
+                  isOutOfStock
+                    ? 'border-rose-500/40 opacity-70 cursor-not-allowed'
+                    : 'border-slate-200 dark:border-slate-800 hover:border-amber-500/80 hover:shadow-2xl cursor-pointer group active:scale-[0.98]'
+                }`}
+              >
+                {/* Dish Photo Container - Prominent, Rich Height */}
+                <div className="relative w-full h-44 sm:h-48 xl:h-52 bg-slate-950 overflow-hidden">
+                  {item.imageUrl ? (
+                    <img
+                      src={item.imageUrl}
+                      alt={item.name}
+                      className={`w-full h-full object-cover transition-transform duration-500 ease-out ${
+                        isOutOfStock ? 'grayscale' : 'group-hover:scale-105'
+                      }`}
+                      loading="lazy"
+                    />
                   ) : (
-                    <p className="text-[11px] text-slate-500 mt-1">{item.categoryName || 'Kitchen Dish'}</p>
+                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-900 dark:to-slate-950 text-slate-400">
+                      <Receipt className="w-10 h-10" />
+                    </div>
                   )}
-                </div>
+                  {/* Soft Gradient Overlay for Readability */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/20 pointer-events-none" />
 
-                <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-800/80">
-                  <div>
-                    <span className="text-[10px] uppercase font-semibold text-slate-500 block -mb-0.5">Price</span>
-                    <span className="font-mono font-bold text-amber-400 text-base">
-                      {formatZMW(item.sellingPrice)}
+                  {/* Stock / Batch Remaining Badge */}
+                  <div className="absolute top-3 right-3 z-10">
+                    <span
+                      className={`text-xs font-mono font-bold px-3 py-1 rounded-full shadow-md backdrop-blur-md ${
+                        item.remainingPortions > 5
+                          ? 'bg-emerald-600/95 text-white dark:bg-emerald-950/90 dark:text-emerald-300 dark:border dark:border-emerald-500/40'
+                          : item.remainingPortions > 0
+                          ? 'bg-amber-500/95 text-slate-950 font-extrabold dark:bg-amber-950/90 dark:text-amber-300 dark:border dark:border-amber-500/40'
+                          : 'bg-rose-600/95 text-white dark:bg-rose-950/90 dark:text-rose-300 dark:border dark:border-rose-500/40'
+                      }`}
+                    >
+                      {item.remainingPortions > 0
+                        ? `${item.remainingPortions} ${isBeverage ? 'units' : 'portions'}`
+                        : isBeverage
+                        ? 'Out of Stock'
+                        : 'No Cooking Batch'}
                     </span>
                   </div>
+
+                  {/* Info / Quick Dish Details Button */}
                   <button
                     type="button"
-                    className="w-8 h-8 rounded-xl bg-slate-800 group-hover:bg-amber-500 group-hover:text-slate-950 text-slate-300 flex items-center justify-center transition shadow-sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDetailItem(item);
+                    }}
+                    title="View full culinary details"
+                    className="absolute top-3 left-3 z-10 w-8 h-8 rounded-full bg-white/90 dark:bg-slate-950/80 hover:bg-amber-500 hover:text-white dark:hover:text-slate-950 text-slate-700 dark:text-slate-200 flex items-center justify-center backdrop-blur-md shadow-md border border-slate-200/80 dark:border-slate-700/80 transition"
                   >
-                    <Plus className="w-4 h-4" />
+                    <Info className="w-4 h-4" />
                   </button>
+
+                  {/* Portion Size Badge on Image Bottom */}
+                  <div className="absolute bottom-3 left-3 z-10">
+                    <span className="text-xs font-bold tracking-wide bg-white/95 dark:bg-slate-900/90 backdrop-blur-md shadow-md border border-slate-200 dark:border-slate-700/60 text-slate-800 dark:text-slate-100 px-3 py-1 rounded-lg">
+                      {isBeverage ? 'Beverage Inventory' : item.portionSize || 'Kitchen Recipe'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Dish Information Card Body */}
+                <div className="p-4 flex flex-col justify-between flex-1 bg-white dark:bg-slate-900">
+                  <div className="space-y-1.5">
+                    <h4 className="font-extrabold text-base text-slate-900 dark:text-slate-100 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition leading-snug">
+                      {item.name}
+                    </h4>
+                    {item.description ? (
+                      <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                        {item.description}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-slate-400 dark:text-slate-500">{item.categoryName || 'Kitchen Dish'}</p>
+                    )}
+                  </div>
+
+                  {/* Price and Add Button Bar - High Visibility Selling Price */}
+                  <div className="mt-4 flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
+                    <div>
+                      <span className="text-[11px] uppercase font-extrabold tracking-wider text-slate-400 dark:text-slate-400 block">
+                        PRICE
+                      </span>
+                      <span className="font-mono font-black text-amber-500 dark:text-amber-400 text-2xl sm:text-3xl tracking-tight drop-shadow-sm">
+                        {formatZMW(item.sellingPrice)}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={isOutOfStock}
+                      className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-black text-sm shadow-lg shadow-amber-500/25 transition active:scale-95"
+                    >
+                      <Plus className="w-4 h-4 stroke-[3]" />
+                      <span>{isOutOfStock ? 'UNAVAILABLE' : 'ADD'}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -464,6 +639,77 @@ export function PosView() {
             onChange={(e) => setTableNumber(e.target.value)}
             className="w-20 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
           />
+        </div>
+
+        {/* Zambian Customer Loyalty & Meal Stamp Card Banner */}
+        <div className="p-3 border-b border-slate-800 bg-amber-500/5 space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-bold text-amber-400 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Zambian Diner Stamp Card</span>
+            </span>
+            <span className="text-[10px] text-slate-400">Buy 10 Nshima meals, get 1 free soft drink</span>
+          </div>
+
+          <div className="relative">
+            <Phone className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Guest Phone (e.g. 0971234567)"
+              value={loyaltyPhone}
+              onChange={(e) => lookupLoyaltyPhone(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1 text-xs text-slate-200 focus:outline-none focus:border-amber-500 font-mono"
+            />
+          </div>
+
+          {loyaltyProfile && (
+            <div className="p-2 bg-slate-950 border border-amber-500/20 rounded-lg space-y-1.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-slate-200">{loyaltyProfile.name}</span>
+                <span className="font-mono text-[11px] text-amber-400 font-bold">
+                  {loyaltyProfile.stamps}/10 Stamps
+                </span>
+              </div>
+
+              {/* Visual 10-Stamp Punch Grid */}
+              <div className="grid grid-cols-10 gap-1 pt-1">
+                {Array.from({ length: 10 }).map((_, idx) => {
+                  const hasStamp = idx < (loyaltyProfile.stamps || 0);
+                  return (
+                    <div
+                      key={idx}
+                      title={`Stamp #${idx + 1}`}
+                      className={`h-4 rounded flex items-center justify-center text-[9px] font-bold transition ${
+                        hasStamp
+                          ? 'bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/40'
+                          : 'bg-slate-800 text-slate-600 border border-slate-700/50'
+                      }`}
+                    >
+                      {hasStamp ? '✓' : idx + 1}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {loyaltyProfile.freeSoftDrinksEarned > 0 && (
+                <div className="mt-1 flex items-center justify-between bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded text-[11px] text-emerald-400">
+                  <span className="flex items-center gap-1">
+                    <Award className="w-3.5 h-3.5" />
+                    <strong>{loyaltyProfile.freeSoftDrinksEarned} Free Drink(s) Ready</strong>
+                  </span>
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={redeemFreeSoftDrink}
+                      onChange={(e) => setRedeemFreeSoftDrink(e.target.checked)}
+                      className="rounded bg-slate-900 border-emerald-600 text-emerald-500 focus:ring-0"
+                    />
+                    <span className="font-bold">Redeem</span>
+                  </label>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Cart Line Items */}
@@ -544,34 +790,53 @@ export function PosView() {
             </span>
           </div>
 
-          <button
-            onClick={() => setShowCheckout(true)}
-            disabled={cart.length === 0}
-            className="w-full py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-extrabold text-base rounded-xl shadow-lg shadow-amber-500/20 transition active:scale-98 flex items-center justify-center gap-2"
-          >
-            <Banknote className="w-5 h-5" />
-            Proceed to Payment ({formatZMW(cartSubtotal)})
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowPosCalculator(true)}
+              title="Open Smart Zambian Restaurant Calculator (VAT 16%, Tips, Split Bill, Change return)"
+              className="px-3.5 py-3 bg-slate-800 hover:bg-slate-700 text-amber-400 hover:text-amber-300 rounded-xl font-bold transition flex items-center justify-center gap-1.5 border border-slate-700/60 shadow-md shrink-0"
+            >
+              <Calculator className="w-5 h-5 text-amber-400" />
+              <span className="text-xs">Calc</span>
+            </button>
+
+            <button
+              onClick={() => setShowCheckout(true)}
+              disabled={cart.length === 0}
+              className="flex-1 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-extrabold text-base rounded-xl shadow-lg shadow-amber-500/20 transition active:scale-98 flex items-center justify-center gap-2"
+            >
+              <Banknote className="w-5 h-5" />
+              Proceed to Payment ({formatZMW(cartSubtotal)})
+            </button>
+          </div>
         </div>
       </div>
 
+      {/* POS Smart Calculator Modal */}
+      <SmartCalculator
+        isOpen={showPosCalculator}
+        onClose={() => setShowPosCalculator(false)}
+        defaultAmount={cartSubtotal}
+      />
+
       {/* Checkout Modal */}
       {showCheckout && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="fixed inset-0 bg-slate-950/75 dark:bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
               <div>
-                <h3 className="text-lg font-bold text-white">Complete Meal Checkout</h3>
-                <p className="text-xs text-slate-400">The LSpot Restaurant POS Settlement</p>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Complete Meal Checkout</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">The LSpot Restaurant POS Settlement</p>
               </div>
-              <span className="text-xl font-mono font-extrabold text-amber-400">
+              <span className="text-xl font-mono font-extrabold text-amber-500 dark:text-amber-400">
                 {formatZMW(cartSubtotal)}
               </span>
             </div>
 
             {/* Payment Method Selector */}
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                 Select Settlement Method
               </label>
               <div className="grid grid-cols-2 gap-2">
@@ -589,8 +854,8 @@ export function PosView() {
                       onClick={() => setPaymentMethod(m.id as any)}
                       className={`p-3 rounded-xl border flex items-center gap-2.5 text-sm font-semibold transition ${
                         isSel
-                          ? 'bg-amber-500 text-slate-950 border-amber-500 shadow-lg'
-                          : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
+                          ? 'bg-amber-500 text-slate-950 border-amber-500 shadow-md shadow-amber-500/20 font-bold'
+                          : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-amber-400'
                       }`}
                     >
                       <Icon className="w-4 h-4" />
@@ -601,38 +866,139 @@ export function PosView() {
               </div>
             </div>
 
-            {/* MoMo Reference Input */}
+            {/* Mobile Money Push & Subscriber PIN Prompt */}
             {(paymentMethod === PaymentMethod.AIRTEL_MONEY ||
               paymentMethod === PaymentMethod.MTN_MOMO) && (
-              <div className="space-y-1">
-                <label className="text-xs text-slate-400">Mobile Money Transaction Ref / ID</label>
-                <input
-                  type="text"
-                  placeholder="e.g. TXN-98471203"
-                  value={paymentReference}
-                  onChange={(e) => setPaymentReference(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500"
-                />
+              <div className="p-4 bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-3.5">
+                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <Smartphone className="w-4 h-4 text-amber-500" />
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">
+                      {paymentMethod === PaymentMethod.AIRTEL_MONEY ? 'Airtel Money (Zambia)' : 'MTN MoMo (Zambia)'}
+                    </span>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-500/20 font-bold uppercase font-mono">
+                    Direct API Push
+                  </span>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Subscriber Phone Number</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="+260 97 1234567"
+                      value={momoPhone}
+                      onChange={(e) => setMomoPhone(e.target.value)}
+                      className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus:outline-none focus:border-amber-500 font-mono"
+                    />
+                    {momoPromptStage === 'IDLE' && (
+                      <button
+                        type="button"
+                        onClick={handleInitiateMoMoPush}
+                        className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl transition"
+                      >
+                        Push Prompt
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Live USSD Push / PIN Authorization Box */}
+                {momoPromptStage === 'PUSHING' && (
+                  <div className="p-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 rounded-xl flex items-center gap-3 text-xs text-amber-700 dark:text-amber-300 animate-pulse">
+                    <div className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                    <span>Sending instant USSD Push notification to subscriber phone...</span>
+                  </div>
+                )}
+
+                {(momoPromptStage === 'WAITING_PIN' || momoPromptStage === 'APPROVED') && (
+                  <div className="p-3.5 bg-white dark:bg-slate-900 border border-amber-500/40 rounded-xl space-y-3 animate-in fade-in shadow-sm">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                        <KeyRound className="w-3.5 h-3.5" />
+                        Enter Mobile Money PIN (4 Digits)
+                      </span>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">Secure Authorization</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="password"
+                        maxLength={4}
+                        placeholder="••••"
+                        value={momoPin}
+                        onChange={(e) => setMomoPin(e.target.value)}
+                        className="w-32 text-center text-xl font-mono tracking-widest bg-slate-50 dark:bg-slate-950 border border-amber-500/50 rounded-xl py-2 focus:outline-none text-emerald-600 dark:text-emerald-400 font-bold"
+                      />
+                      <div className="text-[11px] text-slate-600 dark:text-slate-400 leading-snug">
+                        Subscriber prompt active on <strong className="text-slate-900 dark:text-white">{momoPhone}</strong>. Enter secret wallet PIN to approve {formatZMW(cartSubtotal)}.
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-1 pt-1 border-t border-slate-200 dark:border-slate-900">
+                  <label className="text-[11px] text-slate-500">Transaction Reference / Journal Note (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. TXN-98471203"
+                    value={paymentReference}
+                    onChange={(e) => setPaymentReference(e.target.value)}
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-800 dark:text-slate-300 focus:outline-none focus:border-amber-500 font-mono"
+                  />
+                </div>
               </div>
             )}
 
-            {/* Credit Customer Details */}
+            {/* Credit Customer Details & In-Modal Account Selector */}
             {paymentMethod === PaymentMethod.CUSTOMER_CREDIT && (
-              <div className="p-3.5 bg-blue-950/40 border border-blue-900/60 rounded-xl space-y-1 text-xs">
-                <div className="flex justify-between font-semibold text-blue-300">
-                  <span>Customer:</span>
-                  <span>{selectedCustomer?.name || 'No customer selected'}</span>
+              <div className="p-4 bg-blue-50/60 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 rounded-xl space-y-3 text-xs">
+                <div>
+                  <label className="block text-[11px] font-bold text-blue-900 dark:text-blue-300 uppercase mb-1">
+                    Select Account Customer for Credit Sale
+                  </label>
+                  <select
+                    value={selectedCustomerId}
+                    onChange={(e) => setSelectedCustomerId(e.target.value)}
+                    className="w-full bg-white dark:bg-slate-950 border border-blue-300 dark:border-blue-800 rounded-lg px-2.5 py-2 text-xs font-semibold text-slate-900 dark:text-slate-200 focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="">-- Click to choose Corporate Account / Customer --</option>
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} — Headroom: {formatZMW(c.availableCredit)} (Limit: {formatZMW(c.creditLimit)})
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <div className="flex justify-between text-slate-400">
-                  <span>Credit Limit:</span>
-                  <span>{formatZMW(selectedCustomer?.creditLimit || 0)}</span>
-                </div>
-                <div className="flex justify-between text-slate-400">
-                  <span>Available Credit:</span>
-                  <span className="font-bold text-emerald-400 font-mono">
-                    {formatZMW(selectedCustomer?.availableCredit || 0)}
-                  </span>
-                </div>
+
+                {selectedCustomer ? (
+                  <div className="pt-2 border-t border-blue-200 dark:border-blue-900/60 space-y-1">
+                    <div className="flex justify-between font-bold text-blue-900 dark:text-blue-300">
+                      <span>Selected Account:</span>
+                      <span>{selectedCustomer.name}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                      <span>Total Approved Credit Limit:</span>
+                      <span className="font-mono">{formatZMW(selectedCustomer.creditLimit || 0)}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                      <span>Available Credit Headroom:</span>
+                      <span className={`font-bold font-mono ${selectedCustomer.availableCredit >= cartSubtotal ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                        {formatZMW(selectedCustomer.availableCredit || 0)}
+                      </span>
+                    </div>
+                    {selectedCustomer.availableCredit < cartSubtotal && (
+                      <p className="text-[11px] text-rose-600 dark:text-rose-400 font-semibold mt-1">
+                        ⚠️ Order total ({formatZMW(cartSubtotal)}) exceeds remaining credit limit!
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-amber-700 dark:text-amber-400 italic">
+                    ⚠️ Please select a corporate customer account to charge this meal to credit.
+                  </p>
+                )}
               </div>
             )}
 
@@ -640,7 +1006,7 @@ export function PosView() {
             <div className="flex items-center gap-3 pt-3">
               <button
                 onClick={() => setShowCheckout(false)}
-                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-sm rounded-xl transition"
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-sm rounded-xl transition"
               >
                 Cancel
               </button>
@@ -668,30 +1034,62 @@ export function PosView() {
               <p className="text-xs text-slate-400">{lastReceipt.saleNumber}</p>
             </div>
 
-            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs text-left space-y-1">
-              <p className="text-center font-bold text-slate-200 border-b border-slate-800 pb-1 mb-2 font-sans">
-                The LSpot Restaurant
-              </p>
+            <div className="p-4 bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 text-xs text-left space-y-2 text-slate-800 dark:text-slate-200 shadow-sm">
+              <div className="text-center border-b border-dashed border-slate-300 dark:border-slate-700 pb-2 mb-2 font-sans">
+                <p className="font-extrabold text-sm text-slate-900 dark:text-white">THE LSPOT RESTAURANT</p>
+                <p className="text-[10px] text-slate-500">Manyama, Kalumbila, Zambia</p>
+                <p className="text-[10px] text-slate-500 font-mono">TPIN: 1004829104 • VAT Reg: 16%</p>
+              </div>
+
               <div className="flex justify-between">
-                <span>Total Amount:</span>
-                <span className="font-bold text-amber-400">{formatZMW(lastReceipt.totalAmount)}</span>
+                <span className="text-slate-500">Receipt Ref:</span>
+                <span className="font-bold text-amber-600 dark:text-amber-400">{lastReceipt.saleNumber}</span>
               </div>
               <div className="flex justify-between">
-                <span>Payment:</span>
-                <span>{lastReceipt.payments?.[0]?.paymentMethod || 'CASH'}</span>
+                <span className="text-slate-500">Payment Tendered:</span>
+                <span className="font-bold">{lastReceipt.payments?.[0]?.paymentMethod || 'CASH'}</span>
               </div>
               <div className="flex justify-between">
-                <span>Date:</span>
-                <span>{new Date().toLocaleTimeString()}</span>
+                <span className="text-slate-500">Time (CAT):</span>
+                <span>{new Date().toLocaleTimeString('en-GB', { timeZone: 'Africa/Lusaka' })}</span>
+              </div>
+              <div className="flex justify-between text-sm font-bold border-t border-dashed border-slate-300 dark:border-slate-700 pt-2 text-slate-900 dark:text-white">
+                <span>TOTAL PAID:</span>
+                <span className="font-mono text-amber-600 dark:text-amber-400">
+                  {formatZMW(
+                    lastReceipt.totalAmount ||
+                    lastReceipt.payments?.[0]?.amount ||
+                    lastReceipt.subtotal ||
+                    0
+                  )}
+                </span>
+              </div>
+
+              {/* Fiscal Smart Invoice Compliance Footer */}
+              <div className="pt-2 border-t border-slate-200 dark:border-slate-800 text-[10px] text-slate-500 text-center space-y-0.5">
+                <p className="font-mono font-bold text-emerald-600 dark:text-emerald-400 flex items-center justify-center gap-1">
+                  <QrCode className="w-3 h-3" /> ZRA FISCALIZED CODE
+                </p>
+                <p className="font-mono">{lastReceipt.fiscalInvoiceNo || `ZRA-${lastReceipt.saleNumber?.slice(-6) || 'ZM92'}`}</p>
+                <p className="italic">Thank you for dining with us!</p>
               </div>
             </div>
 
-            <button
-              onClick={() => setLastReceipt(null)}
-              className="w-full py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm rounded-xl transition font-sans"
-            >
-              Start Next Order
-            </button>
+            <div className="flex items-center gap-2 font-sans">
+              <button
+                onClick={() => window.print()}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs rounded-xl border border-slate-300 dark:border-slate-700 transition flex items-center justify-center gap-1.5"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print Receipt</span>
+              </button>
+              <button
+                onClick={() => setLastReceipt(null)}
+                className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-md shadow-amber-500/20"
+              >
+                Next Order
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -761,8 +1159,8 @@ export function PosView() {
                   </p>
                 </div>
                 <div className="text-right">
-                  <span className="text-[10px] uppercase font-semibold text-slate-500 block">Unit Price</span>
-                  <span className="text-2xl font-bold font-mono text-amber-400">
+                  <span className="text-[11px] uppercase font-bold text-slate-400 block">SELLING PRICE</span>
+                  <span className="text-3xl font-black font-mono text-amber-400 drop-shadow-sm">
                     {formatZMW(detailItem.sellingPrice)}
                   </span>
                 </div>

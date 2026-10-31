@@ -8,8 +8,9 @@ export function roundQuantity(val: number): number {
   return Math.round((val + Number.EPSILON) * 10000) / 10000;
 }
 
-export function formatZMW(amount: number): string {
-  const rounded = roundTo2Decimals(amount);
+export function formatZMW(amount: number | string | any): string {
+  const numericVal = typeof amount === 'number' ? amount : parseFloat(String(amount ?? 0)) || 0;
+  const rounded = roundTo2Decimals(numericVal);
   return `${DEFAULT_CURRENCY_SYMBOL} ${rounded.toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2

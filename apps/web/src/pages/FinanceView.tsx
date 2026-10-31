@@ -32,29 +32,27 @@ export function FinanceView() {
   const loadFinance = async () => {
     setIsLoading(true);
     try {
-      const exp = await apiRequest('/finance/expenses');
+      const [exp, dash, cats] = await Promise.all([
+        apiRequest('/finance/expenses'),
+        apiRequest('/finance/dashboard'),
+        apiRequest('/finance/expense-categories').catch(() => [])
+      ]);
       if (exp) setExpenses(exp);
-      const dash = await apiRequest('/finance/dashboard');
       if (dash) setDashboard(dash);
-    } catch (e) {
-      // Fallback
-      setExpenses([
-        { id: 'e1', expenseDate: '2026-10-20T08:00:00Z', category: { name: 'Cooking Gas (LPG)' }, amount: 450, payee: 'Afrox Kalumbila', description: '48kg Commercial Kitchen Gas Refill', paymentMethod: 'CASH' },
-        { id: 'e2', expenseDate: '2026-10-19T14:30:00Z', category: { name: 'Fresh Produce Logistics' }, amount: 200, payee: 'Manyama Local Transporters', description: 'Transport for fresh tomatoes & vegetables from Solwezi', paymentMethod: 'CASH' }
-      ]);
-      setDashboard({
-        todaySales: 4850,
-        cogs: 2120,
-        grossProfit: 2730,
-        operatingExpenses: 650,
-        operatingProfit: 2080
+      if (Array.isArray(cats) && cats.length > 0) {
+        setCategories(cats);
+        if (!expCategoryId) setExpCategoryId(cats[0].id);
+      }
+    } catch (e: any) {
+      console.warn('Network error loading finance data:', e);
+      setExpenses((prev: any[]) => (prev.length > 0 ? prev : []));
+      setDashboard((prev: any) => prev || {
+        todaySales: 0,
+        cogs: 0,
+        grossProfit: 0,
+        operatingExpenses: 0,
+        operatingProfit: 0
       });
-      setCategories([
-        { id: 'exp-001', name: 'Utilities & ZESCO Power' },
-        { id: 'exp-002', name: 'Cooking Gas (LPG)' },
-        { id: 'exp-003', name: 'Fresh Produce Logistics' },
-        { id: 'exp-004', name: 'Cleaning & Kitchen Supplies' }
-      ]);
     } finally {
       setIsLoading(false);
     }
@@ -181,7 +179,7 @@ export function FinanceView() {
                     min="1"
                     value={expAmount}
                     onChange={(e) => setExpAmount(Number(e.target.value))}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500 font-mono text-rose-400 font-bold"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500 font-mono text-rose-400 font-bold"
                   />
                 </div>
                 <div>

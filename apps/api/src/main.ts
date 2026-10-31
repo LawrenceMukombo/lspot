@@ -2,6 +2,9 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
 
@@ -21,8 +24,16 @@ import { zraRouter } from './controllers/zra.controller.js';
 
 export const app = express();
 
+// Security Headers
+app.use((req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 app.use(morgan('dev'));
 
 // Healthcheck & System Info
@@ -53,6 +64,20 @@ app.use(`${API_PREFIX}/shifts`, shiftRouter);
 app.use(`${API_PREFIX}/finance`, financeRouter);
 app.use(`${API_PREFIX}/sync`, syncRouter);
 app.use(`${API_PREFIX}/zra`, zraRouter);
+
+// Serve static SPA build in production if present on disk
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const webDistPath = path.resolve(__dirname, '../../web/dist');
+if (fs.existsSync(webDistPath)) {
+  app.use(express.static(webDistPath));
+  app.get('*', (req: Request, res: Response, next: NextFunction) => {
+    if (req.path.startsWith('/api/') || req.path === '/health') {
+      return next();
+    }
+    res.sendFile(path.join(webDistPath, 'index.html'));
+  });
+}
 
 // Global Error Handler (ERR-01: Prisma error mapping and safe error sanitization)
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {

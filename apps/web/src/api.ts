@@ -1,46 +1,46 @@
 const API_BASE = '/api/v1';
 
-let authPromise: Promise<string | null> | null = null;
+export async function getAuthToken(): Promise<string | null> {
+  return localStorage.getItem('lspot_auth_token');
+}
 
-async function getAuthToken(): Promise<string | null> {
-  let token = localStorage.getItem('lspot_auth_token');
-  if (token) return token;
-
-  if (!authPromise) {
-    authPromise = (async () => {
-      try {
-        const res = await fetch(`${API_BASE}/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: 'manager', password: 'lspot1234' })
-        });
-        const data = await res.json();
-        if (data.success && data.data?.token) {
-          localStorage.setItem('lspot_auth_token', data.data.token);
-          return data.data.token;
-        }
-      } catch (e) {
-        console.warn('Auto-login initialization fallback unavailable:', e);
-      } finally {
-        authPromise = null;
-      }
-      return null;
-    })();
+export function setAuthSession(token: string, user?: any) {
+  localStorage.setItem('lspot_auth_token', token);
+  if (user) {
+    localStorage.setItem('lspot_user_profile', JSON.stringify(user));
   }
-  return authPromise;
+  window.dispatchEvent(new CustomEvent('authSuccess', { detail: { user } }));
+}
+
+export function logoutSession() {
+  localStorage.removeItem('lspot_auth_token');
+  localStorage.removeItem('lrm_auth_token');
+  localStorage.removeItem('lspot_user_profile');
+  window.dispatchEvent(new CustomEvent('authRequired'));
 }
 
 export async function apiRequest<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = await getAuthToken();
   const url = `${API_BASE}${endpoint}`;
-  const headers: Record<string, string> = {
+
+  const buildHeaders = (tok: string | null) => ({
     'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(tok ? { Authorization: `Bearer ${tok}` } : {}),
     ...((options.headers as Record<string, string>) || {})
-  };
+  });
 
   try {
-    const res = await fetch(url, { ...options, headers });
+    const res = await fetch(url, { ...options, headers: buildHeaders(token) });
+
+    if (
+      res.status === 401 &&
+      endpoint !== '/auth/login' &&
+      endpoint !== '/auth/pin-login' &&
+      endpoint !== '/auth/supervisor-override'
+    ) {
+      logoutSession();
+    }
+
     const data = await res.json();
     if (!res.ok) {
       throw new Error(data.message || `Request failed with status ${res.status}`);
@@ -51,3 +51,4 @@ export async function apiRequest<T = any>(endpoint: string, options: RequestInit
     throw err;
   }
 }
+

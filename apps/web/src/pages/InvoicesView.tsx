@@ -8,7 +8,10 @@ import {
   CheckCircle,
   Clock,
   Send,
-  MessageSquare
+  MessageSquare,
+  Mail,
+  Copy,
+  Check
 } from 'lucide-react';
 import { apiRequest } from '../api.js';
 import { EnterpriseTable, Column } from '../components/EnterpriseTable.js';
@@ -35,12 +38,9 @@ export function InvoicesView() {
     try {
       const data = await apiRequest('/invoices');
       if (data) setInvoices(data);
-    } catch (e) {
-      // Fallback
-      setInvoices([
-        { id: 'inv-01', invoiceNumber: 'INV-CON-20261019', customer: { name: 'Kalumbila Mining Services Ltd', phone: '+260971112233' }, invoiceType: 'DAILY_CONSOLIDATED', issueDate: '2026-10-19', dueDate: '2026-11-18', totalAmount: 2150, amountPaid: 0, status: 'ISSUED', deliveryStatus: 'DELIVERED' },
-        { id: 'inv-02', invoiceNumber: 'INV-20261018-04', customer: { name: 'Manyama Transport & Logistics', phone: '+260964445566' }, invoiceType: 'STANDARD', issueDate: '2026-10-18', dueDate: '2026-11-01', totalAmount: 850, amountPaid: 850, status: 'PAID', deliveryStatus: 'DELIVERED' }
-      ]);
+    } catch (e: any) {
+      console.warn('Network error loading invoices:', e);
+      setInvoices((prev) => (prev.length > 0 ? prev : []));
     } finally {
       setIsLoading(false);
     }
@@ -50,11 +50,9 @@ export function InvoicesView() {
     try {
       const cust = await apiRequest('/credit/customers');
       if (cust) setCustomers(cust);
-    } catch (e) {
-      setCustomers([
-        { id: 'c1', name: 'Kalumbila Mining Services Ltd' },
-        { id: 'c2', name: 'Manyama Transport & Logistics' }
-      ]);
+    } catch (e: any) {
+      console.warn('Network error loading customers for invoices:', e);
+      setCustomers((prev) => (prev.length > 0 ? prev : []));
     }
   };
 
@@ -83,9 +81,31 @@ export function InvoicesView() {
       `Here is your invoice *${inv.invoiceNumber}* from *${RESTAURANT_NAME}* (Manyama, Zambia):\n` +
       `Total Due: *${formatZMW(inv.totalAmount)}*\n` +
       `Due Date: ${new Date(inv.dueDate).toLocaleDateString()}\n\n` +
+      `Payment Options: Airtel Money / MTN MoMo or Direct Bank Deposit.\n` +
       `Thank you for your business!`
     );
     window.open(`https://wa.me/${phone}?text=${text}`, '_blank');
+  };
+
+  const handleEmailShare = (inv: any) => {
+    const email = inv.customer?.email || 'finance@client.zm';
+    const subject = encodeURIComponent(`Invoice ${inv.invoiceNumber} from ${RESTAURANT_NAME}`);
+    const body = encodeURIComponent(
+      `Dear ${inv.customer?.name},\n\n` +
+      `Please find details of your invoice ${inv.invoiceNumber} issued by ${RESTAURANT_NAME} (Manyama, Zambia):\n\n` +
+      `Invoice Number: ${inv.invoiceNumber}\n` +
+      `Issue Date: ${new Date(inv.issueDate).toLocaleDateString()}\n` +
+      `Due Date: ${new Date(inv.dueDate).toLocaleDateString()}\n` +
+      `Total Amount Due: ${formatZMW(inv.totalAmount)}\n` +
+      `Amount Paid: ${formatZMW(inv.amountPaid)}\n` +
+      `Status: ${inv.status}\n\n` +
+      `Payment Instructions:\n` +
+      `- Airtel Money Merchant / MTN MoMo\n` +
+      `- Standard Bank Transfer (Reference: ${inv.invoiceNumber})\n\n` +
+      `Thank you for dining with us.\n\n` +
+      `Best regards,\nAccounts Department\n${RESTAURANT_NAME}, Manyama, Kalumbila, Zambia`
+    );
+    window.open(`mailto:${email}?subject=${subject}&body=${body}`, '_blank');
   };
 
   const columns: Column<any>[] = [
@@ -118,22 +138,39 @@ export function InvoicesView() {
       header: 'Actions',
       sortable: false,
       render: (row) => (
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => setSelectedInvoice(row)}
-            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs flex items-center gap-1"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedInvoice(row);
+            }}
+            className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-medium flex items-center gap-1.5 border border-slate-200 dark:border-slate-700 transition"
             title="Preview Printable Invoice"
           >
-            <Printer className="w-3.5 h-3.5 text-amber-400" />
-            Print
+            <Printer className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+            <span>Print</span>
           </button>
           <button
-            onClick={() => handleWhatsAppShare(row)}
-            className="p-1.5 bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 text-emerald-300 rounded-lg text-xs flex items-center gap-1"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleWhatsAppShare(row);
+            }}
+            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white dark:bg-emerald-950 dark:hover:bg-emerald-900 dark:border dark:border-emerald-800 dark:text-emerald-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
             title="Share via WhatsApp"
           >
-            <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
-            WhatsApp
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>WhatsApp</span>
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleEmailShare(row);
+            }}
+            className="px-2.5 py-1.5 bg-sky-600 hover:bg-sky-500 text-white dark:bg-sky-950 dark:hover:bg-sky-900 dark:border dark:border-sky-800 dark:text-sky-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+            title="Send via Email"
+          >
+            <Mail className="w-3.5 h-3.5" />
+            <span>Email</span>
           </button>
         </div>
       )
@@ -307,14 +344,21 @@ export function InvoicesView() {
               </button>
               <button
                 onClick={() => handleWhatsAppShare(selectedInvoice)}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-xl flex items-center gap-1.5"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-xl flex items-center gap-1.5 shadow-md"
               >
                 <MessageSquare className="w-4 h-4" />
                 Send via WhatsApp
               </button>
               <button
+                onClick={() => handleEmailShare(selectedInvoice)}
+                className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm rounded-xl flex items-center gap-1.5 shadow-md"
+              >
+                <Mail className="w-4 h-4" />
+                Send via Email
+              </button>
+              <button
                 onClick={() => window.print()}
-                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm rounded-xl flex items-center gap-1.5"
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm rounded-xl flex items-center gap-1.5 shadow-md"
               >
                 <Printer className="w-4 h-4" />
                 Print / Save PDF

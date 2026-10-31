@@ -1,11 +1,13 @@
 import { Router, Response } from 'express';
 import { authService } from '../services/auth.service.js';
 import { LoginSchema, VerifyPinSchema } from '@lspot/validation';
-import { authenticate, RequestWithUser } from '../middleware/auth.js';
+import { authenticate, RequestWithUser, requireRole, rateLimitAuth } from '../middleware/auth.js';
+import { auditMiddleware } from '../middleware/audit.js';
+import { UserRole } from '@lspot/shared';
 
 export const authRouter = Router();
 
-authRouter.post('/login', async (req, res: Response) => {
+authRouter.post('/login', rateLimitAuth(15, 5 * 60 * 1000), async (req, res: Response) => {
   try {
     const parsed = LoginSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -32,7 +34,29 @@ authRouter.post('/login', async (req, res: Response) => {
   }
 });
 
-authRouter.post('/verify-pin', authenticate, async (req: RequestWithUser, res: Response) => {
+authRouter.post('/pin-login', rateLimitAuth(10, 5 * 60 * 1000), async (req, res: Response) => {
+  try {
+    const { pin, username, tenantId } = req.body;
+    if (!pin || typeof pin !== 'string') {
+      return res.status(400).json({ success: false, message: 'PIN is required' });
+    }
+
+    const result = await authService.loginWithPin(pin, { username, tenantId });
+    return res.json({
+      success: true,
+      message: 'Staff authenticated with PIN',
+      data: result
+    });
+  } catch (err: any) {
+    return res.status(401).json({
+      success: false,
+      message: err.message || 'PIN authentication failed',
+      code: 'AUTH_FAILED'
+    });
+  }
+});
+
+authRouter.post('/verify-pin', authenticate, rateLimitAuth(10, 5 * 60 * 1000), async (req: RequestWithUser, res: Response) => {
   try {
     const parsed = VerifyPinSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -56,6 +80,93 @@ authRouter.post('/verify-pin', authenticate, async (req: RequestWithUser, res: R
     });
   }
 });
+
+authRouter.post('/supervisor-override', authenticate, rateLimitAuth(10, 5 * 60 * 1000), async (req: RequestWithUser, res: Response) => {
+  try {
+    const { pin } = req.body;
+    if (!pin) {
+      return res.status(400).json({ success: false, message: 'Supervisor PIN is required' });
+    }
+
+    const result = await authService.verifySupervisorOverride(req.user!.tenantId, pin);
+    if (!result.valid) {
+      return res.status(403).json({ success: false, message: result.message });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Supervisor override approved',
+      data: result.supervisor
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+      code: 'SERVER_ERROR'
+    });
+  }
+});
+
+authRouter.get(
+  '/users',
+  authenticate,
+  requireRole(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER),
+  async (req: RequestWithUser, res: Response) => {
+    try {
+      const users = await authService.getUsers(req.user!.tenantId);
+      return res.json({ success: true, data: users });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  }
+);
+
+authRouter.post(
+  '/users',
+  authenticate,
+  requireRole(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER),
+  auditMiddleware('CREATE_USER', 'User'),
+  async (req: RequestWithUser, res: Response) => {
+    try {
+      const user = await authService.createUser(req.user!.tenantId, req.body, req.user!.role);
+      return res.status(201).json({ success: true, message: 'User created successfully', data: user });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+authRouter.put(
+  '/users/:id',
+  authenticate,
+  requireRole(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER),
+  auditMiddleware('UPDATE_USER', 'User'),
+  async (req: RequestWithUser, res: Response) => {
+    try {
+      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const user = await authService.updateUser(req.user!.tenantId, id, req.body, req.user!.role);
+      return res.json({ success: true, message: 'User updated successfully', data: user });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+authRouter.delete(
+  '/users/:id',
+  authenticate,
+  requireRole(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER),
+  auditMiddleware('DELETE_USER', 'User'),
+  async (req: RequestWithUser, res: Response) => {
+    try {
+      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const result = await authService.deleteUser(req.user!.tenantId, id, req.user!.role);
+      return res.json({ success: true, message: 'User deleted or archived successfully', data: result });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
 
 authRouter.get('/me', authenticate, async (req: RequestWithUser, res: Response) => {
   return res.json({
