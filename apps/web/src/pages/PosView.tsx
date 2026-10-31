@@ -127,6 +127,17 @@ export function PosView() {
     loadCatalog();
     loadCustomers();
     checkShift();
+
+    const handleRefreshCatalog = () => loadCatalog();
+    window.addEventListener('kitchenRegisterUpdated', handleRefreshCatalog);
+    window.addEventListener('focus', handleRefreshCatalog);
+    const catalogPoll = setInterval(loadCatalog, 10000);
+
+    return () => {
+      window.removeEventListener('kitchenRegisterUpdated', handleRefreshCatalog);
+      window.removeEventListener('focus', handleRefreshCatalog);
+      clearInterval(catalogPoll);
+    };
   }, []);
 
   const checkShift = async () => {

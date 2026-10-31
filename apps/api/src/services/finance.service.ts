@@ -1,5 +1,6 @@
 import { prisma } from '@lspot/database';
 import { roundTo2Decimals, calculateGrossProfit, calculateOperatingProfit } from '@lspot/shared';
+import { getLusakaBusinessDateBounds } from './kitchen.service.js';
 
 export class FinanceService {
   async getDashboardSummary(tenantId: string, startDate?: Date, endDate?: Date) {
@@ -78,15 +79,13 @@ export class FinanceService {
       }
 
       // 5. Kitchen Production in period
-      const startDay = new Date(start);
-      startDay.setHours(0, 0, 0, 0);
-      const endDay = new Date(end);
-      endDay.setHours(23, 59, 59, 999);
+      const startDayUtc = getLusakaBusinessDateBounds(start).businessDateUtc;
+      const endDayUtc = getLusakaBusinessDateBounds(end).businessDateUtc;
 
       const kitchenRegisters = await prisma.kitchenRegister.findMany({
         where: {
           tenantId,
-          businessDate: { gte: startDay, lte: endDay }
+          businessDate: { gte: startDayUtc, lte: endDayUtc }
         },
         include: { items: true }
       });

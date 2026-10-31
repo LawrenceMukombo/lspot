@@ -8,13 +8,31 @@ import {
 } from '@lspot/shared';
 import { authService } from './auth.service.js';
 
+export function getLusakaBusinessDateBounds(referenceDate: Date = new Date()) {
+  const dateStr = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Lusaka',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(referenceDate);
+
+  // @db.Date in PostgreSQL/Prisma is represented as UTC midnight YYYY-MM-DDT00:00:00.000Z
+  const businessDateUtc = new Date(`${dateStr}T00:00:00.000Z`);
+  // Africa/Lusaka is UTC+02:00 year-round
+  const startOfDayLusaka = new Date(`${dateStr}T00:00:00.000+02:00`);
+  const endOfDayLusaka = new Date(`${dateStr}T23:59:59.999+02:00`);
+
+  return {
+    dateStr,
+    businessDateUtc,
+    startOfDayLusaka,
+    endOfDayLusaka
+  };
+}
+
 export class KitchenService {
   async getTodayRegister(tenantId: string, branchId?: string) {
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-
-    const endOfToday = new Date();
-    endOfToday.setHours(23, 59, 59, 999);
+    const { dateStr, businessDateUtc, startOfDayLusaka, endOfDayLusaka } = getLusakaBusinessDateBounds();
 
     // If branchId is not provided, find the primary branch for this tenant
     let targetBranchId = branchId;
@@ -23,88 +41,181 @@ export class KitchenService {
       targetBranchId = branch?.id || '';
     }
 
+    // 1. Find or create today's strict daily register (businessDate = today in Africa/Lusaka)
     let register = await prisma.kitchenRegister.findFirst({
       where: {
         tenantId,
         ...(targetBranchId ? { branchId: targetBranchId } : {}),
-        businessDate: {
-          gte: startOfToday,
-          lte: endOfToday
-        }
+        businessDate: businessDateUtc
       },
       include: {
         items: {
           include: { menuItem: true }
         },
-        batches: true
-      },
-      orderBy: { createdAt: 'desc' }
+        batches: {
+          orderBy: { createdAt: 'desc' }
+        }
+      }
     });
 
-    // If not found with exact date range, check for any currently OPEN kitchen register for this tenant/branch
     if (!register) {
-      register = await prisma.kitchenRegister.findFirst({
-        where: {
-          tenantId,
-          ...(targetBranchId ? { branchId: targetBranchId } : {}),
-          status: KitchenRegisterStatus.OPEN
-        },
-        include: {
-          items: {
-            include: { menuItem: true }
-          },
-          batches: true
-        },
-        orderBy: { businessDate: 'desc' }
-      });
+      register = await this.openRegister(tenantId, targetBranchId, dateStr);
     }
 
-    // If still no register exists, automatically open one
-    if (!register) {
-      register = await this.openRegister(tenantId, targetBranchId, startOfToday.toISOString().split('T')[0]);
-    } else {
-      // Ensure all active menu items are present in today's register items
-      const activeMenuItems = await prisma.menuItem.findMany({
-        where: { tenantId, isAvailable: true }
-      });
-      const existingMenuItemIds = new Set(register.items.map((i) => i.menuItemId));
-      const missingItems = activeMenuItems.filter((m) => !existingMenuItemIds.has(m.id));
+    // 2. Reconcile & close any stale OPEN registers from previous business days (< businessDateUtc)
+    //    so yesterday's cooked food never accumulates into today's register (unsold leftovers become day-end waste).
+    //    If any production batch was accidentally recorded TODAY onto a stale open register, migrate that batch to today's register.
+    const staleOpenRegisters = await prisma.kitchenRegister.findMany({
+      where: {
+        tenantId,
+        ...(targetBranchId ? { branchId: targetBranchId } : {}),
+        status: KitchenRegisterStatus.OPEN,
+        id: { not: register.id }
+      },
+      include: {
+        items: true,
+        batches: true
+      }
+    });
 
-      if (missingItems.length > 0) {
-        await prisma.kitchenRegisterItem.createMany({
-          data: missingItems.map((m) => ({
-            registerId: register!.id,
-            menuItemId: m.id,
-            openingPortions: 0,
-            preparedPortions: 0,
-            soldPortions: 0,
-            wastePortions: 0,
-            staffMealPortions: 0,
-            complimentaryPortions: 0,
-            remainingPortions: 0,
-            closingPortions: 0
-          }))
+    if (staleOpenRegisters.length > 0) {
+      await prisma.$transaction(async (tx) => {
+        for (const staleReg of staleOpenRegisters) {
+          // Identify batches that were actually cooked today vs on prior days
+          const batchesCookedToday = staleReg.batches.filter(
+            (b) => new Date(b.createdAt) >= startOfDayLusaka && new Date(b.createdAt) <= endOfDayLusaka
+          );
+          const batchesCookedPrior = staleReg.batches.filter(
+            (b) => new Date(b.createdAt) < startOfDayLusaka || new Date(b.createdAt) > endOfDayLusaka
+          );
+
+          // Move today's batches onto today's register so today's cooked food is preserved
+          for (const todayBatch of batchesCookedToday) {
+            await tx.productionBatch.update({
+              where: { id: todayBatch.id },
+              data: { registerId: register!.id }
+            });
+          }
+
+          // Recompute the stale register's items using only prior-day batches, and treat any unsold remainder as day-end waste
+          for (const staleItem of staleReg.items) {
+            const priorPrepared = batchesCookedPrior
+              .filter((b) => b.menuItemId === staleItem.menuItemId)
+              .reduce((sum, b) => sum + Number(b.actualPreparedPortions || 0), 0);
+
+            const consumedBeforeClose =
+              Number(staleItem.soldPortions || 0) +
+              Number(staleItem.wastePortions || 0) +
+              Number(staleItem.staffMealPortions || 0) +
+              Number(staleItem.complimentaryPortions || 0);
+
+            const unsoldLeftover = Math.max(
+              0,
+              Number(staleItem.openingPortions || 0) + priorPrepared - consumedBeforeClose
+            );
+
+            await tx.kitchenRegisterItem.update({
+              where: { id: staleItem.id },
+              data: {
+                preparedPortions: priorPrepared,
+                wastePortions: Number(staleItem.wastePortions || 0) + unsoldLeftover,
+                remainingPortions: 0,
+                closingPortions: 0,
+                notes:
+                  unsoldLeftover > 0
+                    ? `Day-end auto-reconciled: ${unsoldLeftover} unsold portion(s) recorded as end-of-day waste`
+                    : staleItem.notes
+              }
+            });
+          }
+
+          await tx.kitchenRegister.update({
+            where: { id: staleReg.id },
+            data: {
+              status: KitchenRegisterStatus.CLOSED,
+              closedAt: new Date(),
+              notes: 'Auto-closed at end of business day (strict daily kitchen register policy)'
+            }
+          });
+        }
+      });
+
+      // Re-sync today's register items from all batches belonging to today's register
+      const todayBatches = await prisma.productionBatch.findMany({
+        where: { registerId: register.id }
+      });
+      const todayItems = await prisma.kitchenRegisterItem.findMany({
+        where: { registerId: register.id }
+      });
+
+      for (const item of todayItems) {
+        const preparedToday = todayBatches
+          .filter((b) => b.menuItemId === item.menuItemId)
+          .reduce((sum, b) => sum + Number(b.actualPreparedPortions || 0), 0);
+        const remainingToday = calculateClosingPreparedPortions({
+          openingPortions: 0,
+          preparedPortions: preparedToday,
+          soldPortions: item.soldPortions,
+          wastePortions: item.wastePortions,
+          staffMealPortions: item.staffMealPortions,
+          complimentaryPortions: item.complimentaryPortions
         });
 
-        // Re-fetch register with all items
-        register = await prisma.kitchenRegister.findUnique({
-          where: { id: register.id },
-          include: {
-            items: {
-              include: { menuItem: true }
-            },
-            batches: true
+        await prisma.kitchenRegisterItem.update({
+          where: { id: item.id },
+          data: {
+            openingPortions: 0,
+            preparedPortions: preparedToday,
+            remainingPortions: remainingToday
           }
         });
       }
     }
 
-    return register;
+    // 3. Ensure all active menu items are present in today's register items
+    const activeMenuItems = await prisma.menuItem.findMany({
+      where: { tenantId, isAvailable: true }
+    });
+    const currentItems = await prisma.kitchenRegisterItem.findMany({
+      where: { registerId: register.id }
+    });
+    const existingMenuItemIds = new Set(currentItems.map((i) => i.menuItemId));
+    const missingItems = activeMenuItems.filter((m) => !existingMenuItemIds.has(m.id));
+
+    if (missingItems.length > 0) {
+      await prisma.kitchenRegisterItem.createMany({
+        data: missingItems.map((m) => ({
+          registerId: register!.id,
+          menuItemId: m.id,
+          openingPortions: 0,
+          preparedPortions: 0,
+          soldPortions: 0,
+          wastePortions: 0,
+          staffMealPortions: 0,
+          complimentaryPortions: 0,
+          remainingPortions: 0,
+          closingPortions: 0
+        }))
+      });
+    }
+
+    // Re-fetch today's authoritative register with items and batches ordered newest-first
+    return prisma.kitchenRegister.findUnique({
+      where: { id: register.id },
+      include: {
+        items: {
+          include: { menuItem: true }
+        },
+        batches: {
+          orderBy: { createdAt: 'desc' }
+        }
+      }
+    });
   }
 
   async openRegister(tenantId: string, branchId: string | undefined, businessDateStr: string) {
-    const businessDate = new Date(businessDateStr);
-    businessDate.setHours(0, 0, 0, 0);
+    const cleanDateStr = String(businessDateStr).split('T')[0];
+    const businessDate = new Date(`${cleanDateStr}T00:00:00.000Z`);
 
     let targetBranchId = branchId;
     if (!targetBranchId) {
@@ -123,7 +234,9 @@ export class KitchenService {
         items: {
           include: { menuItem: true }
         },
-        batches: true
+        batches: {
+          orderBy: { createdAt: 'desc' }
+        }
       }
     });
 
@@ -131,29 +244,7 @@ export class KitchenService {
       return existing;
     }
 
-    // Carry forward closingPortions from the most recent closed register for this branch
-    const previousClosedRegister = await prisma.kitchenRegister.findFirst({
-      where: {
-        tenantId,
-        ...(targetBranchId ? { branchId: targetBranchId } : {}),
-        status: KitchenRegisterStatus.CLOSED,
-        businessDate: { lt: businessDate }
-      },
-      include: { items: true },
-      orderBy: { businessDate: 'desc' }
-    });
-
-    const carryForwardMap = new Map<string, number>();
-    if (previousClosedRegister) {
-      for (const prevItem of previousClosedRegister.items) {
-        const carryOver = Math.max(0, Number(prevItem.closingPortions || 0));
-        if (carryOver > 0) {
-          carryForwardMap.set(prevItem.menuItemId, carryOver);
-        }
-      }
-    }
-
-    // Fetch active salable menu items
+    // Strict daily register: each day starts at 0 opening portions (yesterday's unsold cooked food does not carry over)
     const menuItems = await prisma.menuItem.findMany({
       where: { tenantId, isAvailable: true }
     });
@@ -165,27 +256,26 @@ export class KitchenService {
         businessDate,
         status: KitchenRegisterStatus.OPEN,
         items: {
-          create: menuItems.map((m) => {
-            const opening = carryForwardMap.get(m.id) || 0;
-            return {
-              menuItemId: m.id,
-              openingPortions: opening,
-              preparedPortions: 0,
-              soldPortions: 0,
-              wastePortions: 0,
-              staffMealPortions: 0,
-              complimentaryPortions: 0,
-              remainingPortions: opening,
-              closingPortions: 0
-            };
-          })
+          create: menuItems.map((m) => ({
+            menuItemId: m.id,
+            openingPortions: 0,
+            preparedPortions: 0,
+            soldPortions: 0,
+            wastePortions: 0,
+            staffMealPortions: 0,
+            complimentaryPortions: 0,
+            remainingPortions: 0,
+            closingPortions: 0
+          }))
         }
       },
       include: {
         items: {
           include: { menuItem: true }
         },
-        batches: true
+        batches: {
+          orderBy: { createdAt: 'desc' }
+        }
       }
     });
 

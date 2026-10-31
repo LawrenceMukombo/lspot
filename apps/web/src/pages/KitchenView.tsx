@@ -35,41 +35,8 @@ export function KitchenView() {
   const [menuItems, setMenuItems] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // KDS Live Orders & Sound Chimes state
-  const [kdsTickets, setKdsTickets] = useState<KdsTicket[]>([
-    {
-      id: 'kds-init-1',
-      saleNumber: 'ORD-8821',
-      orderType: 'DINE_IN',
-      tableNumber: 'Table 4',
-      items: [
-        { name: 'Nshima with Chicken', quantity: 2, notes: 'Extra soup, soft nshima' },
-        { name: 'Village Chicken Stew', quantity: 1 }
-      ],
-      createdAt: new Date(Date.now() - 4 * 60000).toISOString(),
-      status: 'COOKING'
-    },
-    {
-      id: 'kds-init-2',
-      saleNumber: 'ORD-8822',
-      orderType: 'TAKEAWAY',
-      items: [
-        { name: 'Nshima with Bream Fish', quantity: 1, notes: 'Well fried bream' },
-        { name: 'Cold Coca Cola', quantity: 1 }
-      ],
-      createdAt: new Date(Date.now() - 14 * 60000).toISOString(),
-      status: 'QUEUED'
-    },
-    {
-      id: 'kds-init-3',
-      saleNumber: 'ORD-8819',
-      orderType: 'DINE_IN',
-      tableNumber: 'Table 2',
-      items: [{ name: 'Rice with Chicken', quantity: 2 }],
-      createdAt: new Date(Date.now() - 24 * 60000).toISOString(),
-      status: 'QUEUED'
-    }
-  ]);
+  // KDS Live Orders & Sound Chimes state (real POS orders only — no simulated data)
+  const [kdsTickets, setKdsTickets] = useState<KdsTicket[]>([]);
   const [chimeEnabled, setChimeEnabled] = useState(true);
   const [lastChimedTicket, setLastChimedTicket] = useState<string | null>(null);
   // Live ticking timestamp updated every 10 seconds so waiting times tick in real-time
@@ -197,56 +164,64 @@ export function KitchenView() {
 
   const loadActiveKdsTickets = async () => {
     try {
-      // First check local storage queue
+      const todayLusakaStr = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Africa/Lusaka',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).format(new Date());
+      const startOfTodayLusaka = new Date(`${todayLusakaStr}T00:00:00.000+02:00`).getTime();
+
+      const bumpedIds = new Set<string>(JSON.parse(localStorage.getItem('lspot_bumped_kds_ids') || '[]'));
+
+      // Check local storage queue and purge any legacy simulated kds-init-* items or prior-day items
       const localKdsStr = localStorage.getItem('lspot_active_kds_orders');
       let localOrders: KdsTicket[] = [];
       if (localKdsStr) {
         try {
-          localOrders = JSON.parse(localKdsStr);
+          const parsed = JSON.parse(localKdsStr);
+          if (Array.isArray(parsed)) {
+            localOrders = parsed.filter(
+              (t: any) =>
+                t &&
+                t.id &&
+                !String(t.id).startsWith('kds-init-') &&
+                !bumpedIds.has(t.id) &&
+                t.status !== 'READY' &&
+                t.status !== 'SERVED' &&
+                new Date(t.createdAt).getTime() >= startOfTodayLusaka
+            );
+            localStorage.setItem('lspot_active_kds_orders', JSON.stringify(localOrders));
+          }
         } catch {}
       }
 
-      // Also fetch multi-device KDS tickets and today's recent POS sales
+      // Fetch real multi-device KDS tickets from backend for today
       const backendKds = await apiRequest('/pos/kds-tickets').catch(() => []);
-      const sales = await apiRequest('/pos/sales?limit=25');
-      if (Array.isArray(sales)) {
-        const bumpedIds = new Set(JSON.parse(localStorage.getItem('lspot_bumped_kds_ids') || '[]'));
+      const serverTickets: KdsTicket[] = Array.isArray(backendKds)
+        ? backendKds.filter(
+            (t: any) =>
+              t &&
+              t.id &&
+              !String(t.id).startsWith('kds-init-') &&
+              !bumpedIds.has(t.id) &&
+              t.status !== 'READY' &&
+              t.status !== 'SERVED' &&
+              new Date(t.createdAt).getTime() >= startOfTodayLusaka
+          )
+        : [];
 
-        const serverTickets: KdsTicket[] = [
-          ...(Array.isArray(backendKds) ? backendKds.filter((t: any) => !bumpedIds.has(t.id)) : []),
-          ...sales
-            .filter((s: any) => s.paymentStatus !== 'REFUNDED' && !bumpedIds.has(s.id))
-            .map((s: any) => ({
-              id: s.id,
-              saleNumber: s.saleNumber,
-              orderType: (s.orderType as any) || 'DINE_IN',
-              tableNumber: s.tableNumber || undefined,
-              items: (s.items || []).map((it: any) => ({
-                name: it.menuItem?.name || 'Dish',
-                quantity: it.quantity,
-                notes: it.notes || undefined
-              })),
-              createdAt: s.createdAt,
-              status: 'QUEUED' as const
-            }))
-        ];
-
-        // Merge local and server tickets avoiding duplicate IDs
-        const combined = [...localOrders];
-        const existingIds = new Set(combined.map((t) => t.id));
-        for (const st of serverTickets) {
-          if (!existingIds.has(st.id)) {
-            combined.push(st);
-            existingIds.add(st.id);
-          }
+      // Merge local and server tickets avoiding duplicate IDs
+      const combined = [...localOrders];
+      const existingIds = new Set(combined.map((t) => t.id));
+      for (const st of serverTickets) {
+        if (!existingIds.has(st.id)) {
+          combined.push(st);
+          existingIds.add(st.id);
         }
-
-        if (combined.length > 0) {
-          setKdsTickets(combined);
-        }
-      } else if (localOrders.length > 0) {
-        setKdsTickets(localOrders);
       }
+
+      setKdsTickets(combined);
     } catch (e) {
       console.warn('Error loading KDS orders:', e);
     }
@@ -256,7 +231,15 @@ export function KitchenView() {
     setIsLoading(true);
     try {
       const res = await apiRequest('/kitchen/registers/today');
-      if (res) setRegister(res);
+      if (res) {
+        setRegister(res);
+        setSelectedItem((prev: any) => {
+          if (!prev) return null;
+          const prevMenuId = prev.menuItemId || prev.menuItem?.id;
+          return (res.items || []).find((i: any) => (i.menuItemId || i.menuItem?.id) === prevMenuId) || prev;
+        });
+        window.dispatchEvent(new CustomEvent('kitchenRegisterUpdated'));
+      }
     } catch (e: any) {
       console.warn('Network error loading today kitchen register:', e);
       setRegister(null);
@@ -429,9 +412,14 @@ export function KitchenView() {
               >
                 {register?.status || 'OPEN'}
               </span>
+              {register?.businessDate && (
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-semibold bg-slate-800 text-amber-400 border border-slate-700">
+                  Date: {String(register.businessDate).split('T')[0]}
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Strict portion accounting: Opening + Production - POS Sales - Waste - Staff Meals = Remaining Portions
+              Strict daily portion accounting: Prepared Today - POS Sales - Waste - Staff Meals = Remaining Portions (unsold day-end portions become waste)
             </p>
           </div>
         </div>
@@ -590,11 +578,15 @@ export function KitchenView() {
                   <div className="pt-3 border-t border-slate-800 flex items-center gap-2 mt-4">
                     {ticket.status !== 'COOKING' ? (
                       <button
-                        onClick={() =>
+                        onClick={() => {
                           setKdsTickets((prev) =>
                             prev.map((t) => (t.id === ticket.id ? { ...t, status: 'COOKING' } : t))
-                          )
-                        }
+                          );
+                          apiRequest(`/pos/kds-tickets/${encodeURIComponent(ticket.id)}`, {
+                            method: 'PATCH',
+                            body: JSON.stringify({ status: 'COOKING', ticketData: { ...ticket, status: 'COOKING' } })
+                          }).catch(() => {});
+                        }}
                         className="flex-1 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
                       >
                         <Flame className="w-3.5 h-3.5" />
@@ -615,6 +607,10 @@ export function KitchenView() {
                         const filtered = localOrders.filter((t: any) => t.id !== ticket.id);
                         localStorage.setItem('lspot_active_kds_orders', JSON.stringify(filtered));
                         setKdsTickets((prev) => prev.filter((t) => t.id !== ticket.id));
+                        apiRequest(`/pos/kds-tickets/${encodeURIComponent(ticket.id)}`, {
+                          method: 'PATCH',
+                          body: JSON.stringify({ status: 'SERVED', ticketData: { ...ticket, status: 'SERVED' } })
+                        }).catch(() => {});
                       }}
                       className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 shadow-md shadow-emerald-950"
                     >

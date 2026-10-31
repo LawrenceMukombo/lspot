@@ -8,12 +8,10 @@ import {
   roundTo2Decimals
 } from '@lspot/shared';
 import { restaurantService } from './restaurant.service.js';
+import { kitchenService, getLusakaBusinessDateBounds } from './kitchen.service.js';
 
 export class PosService {
   async getCatalog(tenantId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
     const categories = await prisma.menuCategory.findMany({
       where: { tenantId, isActive: true },
       orderBy: { sortOrder: 'asc' }
@@ -28,14 +26,11 @@ export class PosService {
       orderBy: { name: 'asc' }
     });
 
-    // Fetch today's register to show remaining prepared portions
-    const todayRegister = await prisma.kitchenRegister.findFirst({
-      where: { tenantId, businessDate: today, status: 'OPEN' },
-      include: { items: true }
-    });
+    // Fetch today's authoritative daily register to show remaining prepared portions
+    const todayRegister = await kitchenService.getTodayRegister(tenantId);
 
     const portionMap = new Map<string, number>();
-    if (todayRegister) {
+    if (todayRegister && todayRegister.status === 'OPEN') {
       for (const item of todayRegister.items) {
         portionMap.set(item.menuItemId, item.remainingPortions);
       }
@@ -136,8 +131,8 @@ export class PosService {
     const creditPayment = data.payments.find((p: any) => p.method === PaymentMethod.CUSTOMER_CREDIT);
     const saleNumber = `SALE-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const ensuredTodayRegister = await kitchenService.getTodayRegister(tenantId, branchId);
+    const { businessDateUtc } = getLusakaBusinessDateBounds();
 
     const integrations = await restaurantService.getIntegrationsConfig(tenantId);
     const zraCfg = integrations.zraConfig;
@@ -147,7 +142,7 @@ export class PosService {
       const todayRegister = await tx.kitchenRegister.findFirst({
         where: {
           tenantId,
-          businessDate: today,
+          ...(ensuredTodayRegister?.id ? { id: ensuredTodayRegister.id } : { businessDate: businessDateUtc }),
           status: 'OPEN'
         },
         include: { items: true }
@@ -534,13 +529,12 @@ export class PosService {
       });
 
       // 2. Restore kitchen portions and beverage stock
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const { businessDateUtc } = getLusakaBusinessDateBounds();
 
       const todayRegister = await tx.kitchenRegister.findFirst({
         where: {
           tenantId,
-          businessDate: today,
+          businessDate: businessDateUtc,
           status: 'OPEN'
         }
       });
@@ -716,15 +710,15 @@ export class PosService {
   }
 
   async getKdsTickets(tenantId: string) {
-    const cutoff = new Date(Date.now() - 12 * 60 * 60 * 1000);
+    const { startOfDayLusaka } = getLusakaBusinessDateBounds();
     const events = await prisma.auditEvent.findMany({
       where: {
         tenantId,
         entityType: 'KDS_TICKET',
-        createdAt: { gte: cutoff }
+        createdAt: { gte: startOfDayLusaka }
       },
       orderBy: { createdAt: 'desc' },
-      take: 40
+      take: 50
     });
 
     const latestByTicketId = new Map<string, any>();
@@ -735,7 +729,9 @@ export class PosService {
       }
     }
 
-    return Array.from(latestByTicketId.values()).filter((t) => t && t.status !== 'SERVED');
+    return Array.from(latestByTicketId.values()).filter(
+      (t) => t && t.status !== 'SERVED' && t.status !== 'READY'
+    );
   }
 
   async updateKdsTicketStatus(tenantId: string, userId: string, ticketId: string, status: 'QUEUED' | 'COOKING' | 'READY' | 'SERVED', ticketData?: any) {
