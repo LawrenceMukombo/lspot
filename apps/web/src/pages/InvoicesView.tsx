@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { apiRequest } from '../api.js';
 import { EnterpriseTable, Column } from '../components/EnterpriseTable.js';
+import { toast } from '../components/Toast.js';
 import { formatZMW, RESTAURANT_NAME, RESTAURANT_LOCATION } from '@lspot/shared';
 
 export function InvoicesView() {
@@ -58,7 +59,7 @@ export function InvoicesView() {
 
   const handleGenerateConsolidated = async () => {
     if (!targetCustomerId) {
-      alert('Please select a customer');
+      toast.warning('Please select a corporate or individual customer account.', 'Customer Selection Required');
       return;
     }
     try {
@@ -68,9 +69,9 @@ export function InvoicesView() {
       });
       setShowConsolidateModal(false);
       loadInvoices();
-      alert(`Consolidated invoice ${inv.invoiceNumber} generated successfully!`);
+      toast.success(`Consolidated invoice ${inv.invoiceNumber} generated successfully.`, 'Invoice Generated');
     } catch (err: any) {
-      alert(`Consolidation note: ${err.message}`);
+      toast.info(`${err.message}`, 'Invoice Consolidation Notice');
     }
   };
 

@@ -18,6 +18,7 @@ import {
 import { apiRequest } from '../api.js';
 import { EnterpriseTable, Column } from '../components/EnterpriseTable.js';
 import { DetailDrawer, DetailStat, DetailSection, DetailRows, btn } from '../components/DetailDrawer.js';
+import { toast } from '../components/Toast.js';
 
 interface KdsTicket {
   id: string;
@@ -276,7 +277,7 @@ export function KitchenView() {
 
   const handleRecordBatch = async () => {
     if (!batchMenuId) {
-      alert('Please select a menu dish');
+      toast.warning('Please select a menu dish to record a cooking batch.', 'Menu Dish Required');
       return;
     }
 
@@ -289,7 +290,7 @@ export function KitchenView() {
       }
 
       if (!activeRegister?.id) {
-        alert('Active kitchen register could not be initialized. Please check network connection.');
+        toast.critical('Active kitchen register could not be initialized. Please check network connection.', 'Kitchen Register Error');
         return;
       }
 
@@ -304,15 +305,16 @@ export function KitchenView() {
         })
       });
       setShowBatchModal(false);
+      toast.success(`Recorded cooking batch of ${actualPortions} portions.`, 'Cooking Batch Logged');
       loadRegister();
     } catch (err: any) {
-      alert(`Failed to record batch: ${err.message}`);
+      toast.critical(`Failed to record batch: ${err.message}`, 'Batch Recording Failed');
     }
   };
 
   const handleRecordWaste = async () => {
     if (!wasteMenuId) {
-      alert('Please select a menu dish');
+      toast.warning('Please select a menu dish to log waste or staff meal.', 'Menu Dish Required');
       return;
     }
     try {
@@ -323,7 +325,7 @@ export function KitchenView() {
       }
 
       if (!activeRegister?.id) {
-        alert('Active kitchen register could not be initialized.');
+        toast.critical('Active kitchen register could not be initialized.', 'Kitchen Register Error');
         return;
       }
 
@@ -339,9 +341,10 @@ export function KitchenView() {
         })
       });
       setShowWasteModal(false);
+      toast.info(`Logged ${wastePortions} portion(s) under ${wasteType} (${wasteReason}).`, 'Portion Deduction Logged');
       loadRegister();
     } catch (err: any) {
-      alert(`Failed to record waste: ${err.message}`);
+      toast.critical(`Failed to record waste: ${err.message}`, 'Waste Logging Error');
     }
   };
 
@@ -354,7 +357,7 @@ export function KitchenView() {
       }
 
       if (!activeRegister?.id) {
-        alert('No active register found to close.');
+        toast.warning('No active kitchen register found to close.', 'No Open Register');
         return;
       }
 
@@ -372,9 +375,9 @@ export function KitchenView() {
       });
       setShowCloseModal(false);
       loadRegister();
-      alert('Daily kitchen register reconciled and closed successfully!');
+      toast.success('Daily kitchen register reconciled and closed successfully.', 'Kitchen Register Closed');
     } catch (err: any) {
-      alert(`Failed to close register: ${err.message}`);
+      toast.critical(`Failed to close register: ${err.message}`, 'Register Close Error');
     }
   };
 

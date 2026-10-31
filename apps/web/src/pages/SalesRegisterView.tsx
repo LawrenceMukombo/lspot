@@ -10,6 +10,7 @@ import {
   ChevronUp
 } from 'lucide-react';
 import { apiRequest } from '../api.js';
+import { toast } from '../components/Toast.js';
 import { formatZMW } from '@lspot/shared';
 
 interface DailySale {
@@ -125,7 +126,10 @@ export function SalesRegisterView() {
 
       setReversalTargetSale(null);
       await loadSales();
-      alert('Sale transaction successfully reversed! Stock and kitchen portions have been restored.');
+      toast.success(
+        'Sale transaction successfully reversed! Beverage stock and kitchen portions have been restored.',
+        'Sale Reversal Confirmed'
+      );
     } catch (err: any) {
       setReversalError(err.message || 'Failed to reverse sale');
     } finally {
@@ -155,9 +159,10 @@ export function SalesRegisterView() {
       });
 
       setEditTargetSale(null);
+      toast.info(`Updated sale details for ${editTargetSale.saleNumber}.`, 'Sale Record Updated');
       await loadSales();
     } catch (err: any) {
-      alert(`Failed to update sale: ${err.message}`);
+      toast.critical(`Failed to update sale: ${err.message}`, 'Sale Update Error');
     } finally {
       setIsEditing(false);
     }

@@ -12,6 +12,7 @@ import {
   Zap
 } from 'lucide-react';
 import { apiRequest } from '../api.js';
+import { toast } from '../components/Toast.js';
 import { RESTAURANT_NAME, RESTAURANT_LOCATION } from '@lspot/shared';
 
 export function ZraView() {
@@ -80,9 +81,9 @@ export function ZraView() {
       });
       setShowConfigModal(false);
       await loadZraStatus();
-      alert('ZRA Smart Invoice VSDC & VAT parameters updated successfully!');
+      toast.success('ZRA Smart Invoice VSDC & VAT parameters updated.', 'ZRA Settings Saved');
     } catch (err: any) {
-      alert(`Failed to update ZRA settings: ${err.message}`);
+      toast.critical(`Failed to update ZRA settings: ${err.message}`, 'ZRA Config Error');
     } finally {
       setIsSavingConfig(false);
     }
@@ -92,10 +93,10 @@ export function ZraView() {
     setIsBatchFiscalizing(true);
     try {
       const res = await apiRequest('/zra/fiscalize-batch', { method: 'POST' });
-      alert(`Batch fiscalization complete! Signed ${res?.fiscalizedCount ?? 0} invoice(s).`);
+      toast.success(`Batch fiscalization complete! Signed ${res?.fiscalizedCount ?? 0} invoice(s).`, 'Batch Fiscalization Complete');
       await loadZraStatus();
     } catch (err: any) {
-      alert(`Batch fiscalization error: ${err.message}`);
+      toast.critical(`Batch fiscalization error: ${err.message}`, 'Fiscalization Error');
     } finally {
       setIsBatchFiscalizing(false);
     }
@@ -104,10 +105,10 @@ export function ZraView() {
   const handleFiscalizeSale = async (id: string) => {
     try {
       await apiRequest(`/zra/sales/${id}/fiscalize`, { method: 'POST' });
-      alert('Sale successfully fiscalized with unique ZRA signature!');
+      toast.success('Sale successfully fiscalized with unique ZRA signature!', 'Fiscal Signature Generated');
       loadZraStatus();
     } catch (err: any) {
-      alert(`Fiscalization error: ${err.message}`);
+      toast.critical(`Fiscalization error: ${err.message}`, 'Fiscalization Error');
     }
   };
 

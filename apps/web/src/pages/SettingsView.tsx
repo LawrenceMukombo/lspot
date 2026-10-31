@@ -29,6 +29,7 @@ import {
 import { apiRequest } from '../api.js';
 import { EnterpriseTable, Column } from '../components/EnterpriseTable.js';
 import { FormModal, btn, inputCls, labelCls } from '../components/DetailDrawer.js';
+import { toast } from '../components/Toast.js';
 
 interface CategoryItem {
   id: string;
@@ -301,7 +302,7 @@ export function SettingsView() {
 
   const handleSaveCategory = async () => {
     if (!categoryForm.name.trim()) {
-      alert('Category name is required');
+      toast.warning('Category name is required.', 'Validation Warning');
       return;
     }
     setIsSavingCategory(true);
@@ -684,9 +685,10 @@ export function SettingsView() {
                     body: JSON.stringify(profile)
                   });
                   setProfileSavedMsg(true);
+                  toast.success('Restaurant parameters persisted to database.', 'Parameters Saved');
                   setTimeout(() => setProfileSavedMsg(false), 3000);
                 } catch (err: any) {
-                  alert(`Failed to update parameters: ${err.message}`);
+                  toast.critical(`Failed to update parameters: ${err.message}`, 'Save Error');
                 } finally {
                   setIsSavingProfile(false);
                 }

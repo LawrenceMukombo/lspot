@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { apiRequest } from '../api.js';
 import { EnterpriseTable, Column } from '../components/EnterpriseTable.js';
+import { toast } from '../components/Toast.js';
 import { UserRole } from '@lspot/shared';
 import {
   registerBiometric,
@@ -259,7 +260,7 @@ export function UsersView() {
 
   const handleRegisterBiometric = async (type: 'thumbprint' | 'face') => {
     if (!editingUser) {
-      alert('Please save the staff profile first before registering biometrics.');
+      toast.warning('Please save the staff profile first before registering biometrics.', 'Save Profile First');
       return;
     }
 
@@ -299,11 +300,11 @@ export function UsersView() {
 
   const handleSaveUser = async () => {
     if (!fullName || !username) {
-      alert('Full name and username are required.');
+      toast.warning('Full name and username are required.', 'Missing Credentials');
       return;
     }
     if (supervisorPin && !/^\d{4,6}$/.test(supervisorPin)) {
-      alert('Supervisor / Login PIN must be 4 to 6 numeric digits.');
+      toast.warning('Supervisor / Login PIN must be 4 to 6 numeric digits.', 'Invalid PIN Format');
       return;
     }
 
@@ -323,7 +324,7 @@ export function UsersView() {
         });
         // Save user-specific granular permissions
         localStorage.setItem(`lspot_user_rights_${editingUser.id}`, JSON.stringify(customRights));
-        alert('User profile and permissions updated successfully!');
+        toast.success(`User profile and permissions for ${fullName} updated.`, 'Staff Profile Updated');
       } else {
         const createdUser = await apiRequest('/auth/users', {
           method: 'POST',
@@ -341,12 +342,12 @@ export function UsersView() {
         if (createdUser?.id) {
           localStorage.setItem(`lspot_user_rights_${createdUser.id}`, JSON.stringify(customRights));
         }
-        alert('Staff account created and permissions configured successfully!');
+        toast.success(`Staff account @${username} created and permissions configured.`, 'Staff Account Created');
       }
       setShowAddModal(false);
       loadUsers();
     } catch (err: any) {
-      alert(`Save failed: ${err.message}`);
+      toast.critical(`Save failed: ${err.message}`, 'Staff Save Error');
     }
   };
 
@@ -360,14 +361,14 @@ export function UsersView() {
 
     try {
       await apiRequest(`/auth/users/${u.id}`, { method: 'DELETE' });
-      alert(`Staff member "${u.fullName}" removed / archived successfully.`);
+      toast.info(`Staff member "${u.fullName}" removed or archived safely.`, 'Staff Member Archived');
       setShowAddModal(false);
       setEditingUser(null);
       loadUsers();
     } catch (err: any) {
       // Offline fallback state removal
       setUsers((prev) => prev.filter((user) => user.id !== u.id));
-      alert(`Staff record removed locally.`);
+      toast.info(`Staff record "${u.fullName}" removed locally.`, 'Local Record Removed');
       setShowAddModal(false);
       setEditingUser(null);
     }

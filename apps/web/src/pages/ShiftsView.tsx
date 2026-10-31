@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { apiRequest } from '../api.js';
 import { EnterpriseTable, Column } from '../components/EnterpriseTable.js';
+import { toast } from '../components/Toast.js';
 import { formatZMW } from '@lspot/shared';
 
 export function ShiftsView() {
@@ -77,9 +78,9 @@ export function ShiftsView() {
       setShowOpenModal(false);
       loadShifts();
       window.dispatchEvent(new CustomEvent('shiftUpdated'));
-      alert('Shift opened successfully with cash float!');
+      toast.success(`Cashier shift opened with starting float of ${formatZMW(Number(openFloat))}.`, 'Shift Opened');
     } catch (err: any) {
-      alert(`Failed to open shift: ${err.message}`);
+      toast.critical(`Failed to open shift: ${err.message}`, 'Shift Open Error');
     }
   };
 
@@ -101,12 +102,12 @@ export function ShiftsView() {
       window.dispatchEvent(new CustomEvent('shiftUpdated'));
       const variance = res.reconciliation?.variance || 0;
       if (variance === 0) {
-        alert('Shift balanced perfectly with zero cash variance!');
+        toast.success('Shift balanced perfectly with zero cash variance (K 0.00)!', 'Shift Balanced & Closed');
       } else {
-        alert(`Shift closed with variance of ${formatZMW(variance)}`);
+        toast.warning(`Shift closed and signed off with a variance of ${formatZMW(variance)}.`, 'Shift Closed with Variance');
       }
     } catch (err: any) {
-      alert(`Failed to close shift: ${err.message}`);
+      toast.critical(`Failed to close shift: ${err.message}`, 'Shift Close Error');
     }
   };
 
@@ -126,9 +127,12 @@ export function ShiftsView() {
       setWithdrawPin('');
       loadShifts();
       window.dispatchEvent(new CustomEvent('shiftUpdated'));
-      alert('Cash withdrawal (Safe Drop) recorded and drawer balance updated!');
+      toast.success(
+        `Safe drop of ${formatZMW(Number(withdrawAmount))} recorded and drawer balance updated.`,
+        'Cash Withdrawal Approved'
+      );
     } catch (err: any) {
-      alert(`Cash withdrawal failed: ${err.message}`);
+      toast.critical(`Cash withdrawal failed: ${err.message}`, 'Withdrawal Denied');
     }
   };
 

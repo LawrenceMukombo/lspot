@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { apiRequest } from '../api.js';
 import { EnterpriseTable, Column } from '../components/EnterpriseTable.js';
+import { toast } from '../components/Toast.js';
 import { formatZMW } from '@lspot/shared';
 
 export function FinanceView() {
@@ -60,7 +61,7 @@ export function FinanceView() {
 
   const handleRecordExpense = async () => {
     if (!expPayee || !expDescription) {
-      alert('Please fill in Payee and Description');
+      toast.warning('Please fill in both Payee and Expense Description.', 'Missing Expense Details');
       return;
     }
     try {
@@ -76,9 +77,9 @@ export function FinanceView() {
       });
       setShowAddExpense(false);
       loadFinance();
-      alert('Operating expense recorded successfully!');
+      toast.success(`Operating expense of ${formatZMW(Number(expAmount))} paid to ${expPayee} recorded.`, 'Expense Recorded');
     } catch (err: any) {
-      alert(`Failed to record expense: ${err.message}`);
+      toast.critical(`Failed to record expense: ${err.message}`, 'Expense Recording Error');
     }
   };
 

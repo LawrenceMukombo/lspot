@@ -27,6 +27,7 @@ import {
 import { apiRequest } from '../api.js';
 import { formatZMW, PaymentMethod } from '@lspot/shared';
 import { SmartCalculator } from '../components/SmartCalculator.js';
+import { toast } from '../components/Toast.js';
 import { offlineStorage } from '../utils/offlineStorage.js';
 
 interface MenuItem {
@@ -222,7 +223,10 @@ export function PosView() {
 
   const handleInitiateMoMoPush = async () => {
     if (!momoPhone || momoPhone.replace(/\s+/g, '').length < 9) {
-      alert('Please enter a valid Airtel or MTN mobile phone number (e.g. +260 97...)');
+      toast.warning(
+        'Please enter a valid Airtel or MTN mobile phone number (e.g. +260 97...).',
+        'Mobile Number Required'
+      );
       return;
     }
     setMomoPromptStage('PUSHING');
@@ -238,8 +242,12 @@ export function PosView() {
       if (pushRes?.transactionRef) {
         setPaymentReference(pushRes.transactionRef);
       }
+      toast.info(
+        pushRes?.message || `USSD PIN prompt dispatched to ${momoPhone}.`,
+        'Mobile Money Push Sent'
+      );
     } catch {
-      // Offline / simulation fallback
+      toast.info(`USSD PIN prompt simulated for ${momoPhone}.`, 'Mobile Money Sandbox Push');
     }
     setTimeout(() => {
       setMomoPromptStage('WAITING_PIN');
@@ -250,11 +258,14 @@ export function PosView() {
     if (cart.length === 0) return;
     if (paymentMethod === PaymentMethod.CUSTOMER_CREDIT) {
       if (!selectedCustomerId) {
-        alert('Please select a customer for Credit purchase');
+        toast.warning('Please select a customer account for Credit purchase.', 'Customer Required');
         return;
       }
       if (selectedCustomer && cartNetTotal > selectedCustomer.availableCredit) {
-        alert(`Credit limit exceeded! Customer available headroom: ${formatZMW(selectedCustomer.availableCredit)}`);
+        toast.critical(
+          `Credit limit exceeded! Customer available headroom: ${formatZMW(selectedCustomer.availableCredit)}`,
+          'Credit Limit Exceeded'
+        );
         return;
       }
     }
@@ -266,7 +277,10 @@ export function PosView() {
         return;
       }
       if (!momoPin || momoPin.length < 4) {
-        alert('Please enter the 4-digit Mobile Money subscriber PIN authorization code.');
+        toast.warning(
+          'Please enter the 4-digit Mobile Money subscriber PIN authorization code.',
+          'Subscriber PIN Required'
+        );
         return;
       }
     }
@@ -382,10 +396,14 @@ export function PosView() {
       setCart([]);
       setShowCheckout(false);
       setRedeemFreeSoftDrink(false);
+      toast.success(
+        `Sale ${receiptData.saleNumber} completed (${formatZMW(receiptTotal)}). Kitchen ticket dispatched.`,
+        'Sale Completed'
+      );
       loadCatalog();
       window.dispatchEvent(new CustomEvent('shiftUpdated'));
     } catch (err: any) {
-      alert(`Checkout failed: ${err.message}`);
+      toast.critical(`Checkout failed: ${err.message}`, 'POS Checkout Failed');
     } finally {
       setIsSubmitting(false);
     }
@@ -471,10 +489,11 @@ export function PosView() {
                 key={item.id}
                 onClick={() => {
                   if (isOutOfStock) {
-                    alert(
+                    toast.warning(
                       isBeverage
                         ? `Cannot add ${item.name}: Out of stock in Beverage Inventory.`
-                        : `Cannot add ${item.name}: Requires an active Kitchen Cooking Batch with available portions.`
+                        : `Cannot add ${item.name}: Requires an active Kitchen Cooking Batch with available portions.`,
+                      isBeverage ? 'Beverage Out of Stock' : 'No Prepared Portions Available'
                     );
                     return;
                   }

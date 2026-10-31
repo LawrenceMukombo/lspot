@@ -3,6 +3,7 @@ import { UtensilsCrossed, Lock, KeyRound, UserCheck } from 'lucide-react';
 import { Navbar } from './components/Navbar.js';
 import { Sidebar, NavTab } from './components/Sidebar.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
+import { ToastViewport } from './components/Toast.js';
 import { ThemeProvider } from './context/ThemeContext.js';
 import { apiRequest, setAuthSession } from './api.js';
 import { RESTAURANT_NAME, RESTAURANT_LOCATION } from '@lspot/shared';
@@ -174,6 +175,7 @@ export function App() {
   if (!isAuthenticated) {
     return (
       <ThemeProvider>
+        <ToastViewport />
         <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans">
           <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-7 shadow-2xl space-y-6">
             <div className="text-center space-y-2">
@@ -289,6 +291,7 @@ export function App() {
 
   return (
     <ThemeProvider>
+      <ToastViewport />
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans transition-colors duration-200">
         <Navbar />
 

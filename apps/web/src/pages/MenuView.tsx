@@ -16,6 +16,7 @@ import { apiRequest } from '../api.js';
 import { EnterpriseTable, Column } from '../components/EnterpriseTable.js';
 import { formatZMW } from '@lspot/shared';
 import { DetailDrawer, DetailStat, DetailSection, DetailRows, FormModal, btn, inputCls, labelCls } from '../components/DetailDrawer.js';
+import { toast } from '../components/Toast.js';
 
 const DEFAULT_CATEGORIES = [
   { id: 'cat-traditional', name: 'Traditional Zambian Meals' },
@@ -85,7 +86,10 @@ export function MenuView() {
   };
 
   const handleSaveQuickCategory = async () => {
-    if (!quickCatName.trim()) return alert('Category name is required');
+    if (!quickCatName.trim()) {
+      toast.warning('Category name is required.', 'Missing Category Name');
+      return;
+    }
     setSavingCategory(true);
     try {
       try {
@@ -146,9 +150,18 @@ export function MenuView() {
   };
 
   const handleSaveDish = async () => {
-    if (!menuForm.name || menuForm.name.trim().length < 2) return alert('Dish name is required');
-    if (!menuForm.categoryId) return alert('Please choose a category');
-    if (!(Number(menuForm.sellingPrice) > 0)) return alert('Selling price must be greater than zero');
+    if (!menuForm.name || menuForm.name.trim().length < 2) {
+      toast.warning('Dish name is required (at least 2 characters).', 'Validation Warning');
+      return;
+    }
+    if (!menuForm.categoryId) {
+      toast.warning('Please choose a menu category.', 'Category Required');
+      return;
+    }
+    if (!(Number(menuForm.sellingPrice) > 0)) {
+      toast.warning('Selling price must be greater than zero.', 'Invalid Price');
+      return;
+    }
     setSaving(true);
     const body = JSON.stringify({
       ...menuForm,

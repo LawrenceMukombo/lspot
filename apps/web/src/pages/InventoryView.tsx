@@ -11,6 +11,7 @@ import { apiRequest } from '../api.js';
 import { EnterpriseTable, Column } from '../components/EnterpriseTable.js';
 import { formatZMW, UnitOfMeasure, StockCategoryType } from '@lspot/shared';
 import { DetailDrawer, DetailStat, DetailSection, DetailRows, FormModal, btn, inputCls, labelCls } from '../components/DetailDrawer.js';
+import { toast } from '../components/Toast.js';
 
 const emptyStockForm = {
   name: '',
@@ -67,8 +68,14 @@ export function InventoryView() {
   };
 
   const handleSaveStockItem = async () => {
-    if (!stockForm.name || stockForm.name.trim().length < 2) return alert('Item name is required');
-    if (!stockForm.sku || stockForm.sku.trim().length < 2) return alert('SKU / Code is required');
+    if (!stockForm.name || stockForm.name.trim().length < 2) {
+      toast.warning('Item name is required (at least 2 characters).', 'Validation Warning');
+      return;
+    }
+    if (!stockForm.sku || stockForm.sku.trim().length < 2) {
+      toast.warning('SKU / Stock Code is required.', 'Validation Warning');
+      return;
+    }
     setSaving(true);
     try {
       if (stockFormMode === 'CREATE') {
@@ -81,6 +88,7 @@ export function InventoryView() {
             unitCost: Number(stockForm.unitCost)
           })
         });
+        toast.success(`Stock item "${stockForm.name}" created in inventory.`, 'Stock Item Created');
       } else if (selectedItem) {
         await apiRequest(`/inventory/items/${selectedItem.id}`, {
           method: 'PUT',
@@ -91,12 +99,13 @@ export function InventoryView() {
             reorderLevel: Number(stockForm.reorderLevel)
           })
         });
+        toast.success(`Stock item "${stockForm.name}" updated.`, 'Stock Item Updated');
       }
       setStockFormMode(null);
       setSelectedItem(null);
       loadInventory();
     } catch (err: any) {
-      alert(`Save failed: ${err.message}`);
+      toast.critical(`Save failed: ${err.message}`, 'Inventory Save Error');
     } finally {
       setSaving(false);
     }
@@ -107,15 +116,19 @@ export function InventoryView() {
     try {
       await apiRequest(`/inventory/items/${item.id}`, { method: 'DELETE' });
       setSelectedItem(null);
+      toast.info(`Stock item "${item.name}" deactivated (historical movements preserved).`, 'Item Deactivated');
       loadInventory();
     } catch (err: any) {
-      alert(`Deactivation failed: ${err.message}`);
+      toast.critical(`Deactivation failed: ${err.message}`, 'Deactivation Error');
     }
   };
 
   const handleAdjust = async () => {
     if (!selectedItem) return;
-    if (!/^\d{4,6}$/.test(adjustPin)) return alert('Supervisor PIN (4-6 digits) is required');
+    if (!/^\d{4,6}$/.test(adjustPin)) {
+      toast.warning('Supervisor PIN (4-6 numeric digits) is required to authorize stock adjustments.', 'Supervisor PIN Required');
+      return;
+    }
     setSaving(true);
     try {
       await apiRequest('/inventory/adjust', {
@@ -130,9 +143,10 @@ export function InventoryView() {
       setShowAdjustModal(false);
       setSelectedItem(null);
       setAdjustPin('');
+      toast.success(`Physical stock count for "${selectedItem.name}" reconciled to ${adjustCount} ${selectedItem.unitOfMeasure}.`, 'Stock Count Adjusted');
       loadInventory();
     } catch (err: any) {
-      alert(`Adjustment failed: ${err.message}`);
+      toast.critical(`Adjustment failed: ${err.message}`, 'Stock Adjustment Failed');
     } finally {
       setSaving(false);
     }
@@ -160,7 +174,7 @@ export function InventoryView() {
 
   const handleReceiveStock = async () => {
     if (!receiveItemId) {
-      alert('Please select an item');
+      toast.warning('Please select a stock item to receive.', 'Item Selection Required');
       return;
     }
     try {
@@ -176,15 +190,15 @@ export function InventoryView() {
       });
       setShowReceiveModal(false);
       loadInventory();
-      alert('Stock received and Moving Average Unit Cost updated!');
+      toast.success('Supplier stock received and Moving Average Unit Cost updated.', 'Stock Receipt Confirmed');
     } catch (err: any) {
-      alert(`Receipt failed: ${err.message}`);
+      toast.critical(`Receipt failed: ${err.message}`, 'Stock Receipt Failed');
     }
   };
 
   const handleTransferStock = async () => {
     if (!transferItemId) {
-      alert('Please select an item');
+      toast.warning('Please select a stock item to transfer to the kitchen.', 'Item Selection Required');
       return;
     }
     try {
@@ -200,9 +214,9 @@ export function InventoryView() {
       });
       setShowTransferModal(false);
       loadInventory();
-      alert('Stock transferred to kitchen successfully!');
+      toast.success('Stock issued from Main Store to Kitchen successfully.', 'Kitchen Issue Recorded');
     } catch (err: any) {
-      alert(`Transfer failed: ${err.message}`);
+      toast.critical(`Transfer failed: ${err.message}`, 'Stock Transfer Error');
     }
   };
 

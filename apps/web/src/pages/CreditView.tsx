@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { apiRequest } from '../api.js';
 import { EnterpriseTable, Column } from '../components/EnterpriseTable.js';
+import { toast } from '../components/Toast.js';
 import { formatZMW, PaymentMethod } from '@lspot/shared';
 
 export function CreditView() {
@@ -106,7 +107,7 @@ export function CreditView() {
       const ledger = await apiRequest(`/credit/customers/${customer.id}/ledger`);
       setCustomerLedgerData(ledger);
     } catch (err: any) {
-      alert(`Failed to load customer ledger: ${err.message}`);
+      toast.critical(`Failed to load customer ledger: ${err.message}`, 'Ledger Load Error');
     } finally {
       setIsLedgerLoading(false);
     }
@@ -114,7 +115,10 @@ export function CreditView() {
 
   const handleDeleteCustomer = async (customer: any) => {
     if (Number(customer.currentBalance) > 0) {
-      alert(`Cannot deactivate ${customer.name}. The account has an active debt of ${formatZMW(customer.currentBalance)}. Please receive debt settlement before deactivating.`);
+      toast.warning(
+        `Cannot deactivate ${customer.name}. The account has an active debt of ${formatZMW(customer.currentBalance)}. Please receive debt settlement before deactivating.`,
+        'Active Debt Balance Guardrail'
+      );
       return;
     }
 
@@ -125,9 +129,10 @@ export function CreditView() {
 
     try {
       await apiRequest(`/credit/customers/${customer.id}`, { method: 'DELETE' });
+      toast.info(`Customer credit profile "${customer.name}" has been deactivated.`, 'Account Deactivated');
       await loadCreditData();
     } catch (err: any) {
-      alert(`Failed to deactivate customer: ${err.message}`);
+      toast.critical(`Failed to deactivate customer: ${err.message}`, 'Deactivation Failed');
     }
   };
 
@@ -161,16 +166,16 @@ export function CreditView() {
 
   const handleRecordRepayment = async () => {
     if (!payCustomerId) {
-      alert('Please select a debtor customer to receive repayment.');
+      toast.warning('Please select a debtor customer to receive repayment.', 'Customer Selection Required');
       return;
     }
     const numAmount = Number(payAmount);
     if (!numAmount || numAmount <= 0) {
-      alert('Payment amount must be greater than zero.');
+      toast.warning('Payment amount must be greater than zero.', 'Invalid Payment Amount');
       return;
     }
     if (currentOwing <= 0) {
-      alert(`${selectedRepayCustomer?.name || 'Customer'} has zero outstanding debt (K 0.00). No repayment is due.`);
+      toast.info(`${selectedRepayCustomer?.name || 'Customer'} has zero outstanding debt (K 0.00). No repayment is due.`, 'No Outstanding Balance');
       return;
     }
     if (numAmount > currentOwing) {
@@ -191,6 +196,10 @@ export function CreditView() {
         })
       });
       setShowPayModal(false);
+      toast.success(
+        `Received ${formatZMW(numAmount)} debt settlement from ${selectedRepayCustomer?.name || 'Customer'}.`,
+        'Debt Repayment Recorded'
+      );
       loadCreditData();
       setPayReceipt({
         customer: selectedRepayCustomer,
@@ -202,17 +211,17 @@ export function CreditView() {
         date: new Date().toISOString()
       });
     } catch (err: any) {
-      alert(`Repayment failed: ${err.message}`);
+      toast.critical(`Repayment failed: ${err.message}`, 'Repayment Processing Error');
     }
   };
 
   const handleSaveCustomer = async () => {
     if (!newCustName.trim()) {
-      alert('Customer or organization name is required.');
+      toast.warning('Customer or organization name is required.', 'Missing Required Field');
       return;
     }
     if (!newCustPhone.trim()) {
-      alert('Contact phone number is required.');
+      toast.warning('Contact phone number is required.', 'Missing Required Field');
       return;
     }
 
@@ -231,6 +240,7 @@ export function CreditView() {
             paymentTermsDays: Number(newCustTerms)
           })
         });
+        toast.success(`Updated credit profile for ${newCustName}.`, 'Customer Profile Updated');
       } else {
         await apiRequest('/credit/customers', {
           method: 'POST',
@@ -245,12 +255,13 @@ export function CreditView() {
             paymentTermsDays: Number(newCustTerms)
           })
         });
+        toast.success(`Created credit account for ${newCustName} with ${formatZMW(Number(newCustLimit))} limit.`, 'Credit Account Created');
       }
       setShowAddCustomerModal(false);
       setEditingCustomer(null);
       await loadCreditData();
     } catch (err: any) {
-      alert(`Customer save failed: ${err.message}`);
+      toast.critical(`Customer save failed: ${err.message}`, 'Save Error');
     }
   };
 
