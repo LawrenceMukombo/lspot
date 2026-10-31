@@ -162,9 +162,21 @@ export function Navbar({ activeShift }: NavbarProps) {
       checkOfflineQueue();
     };
 
+    const handleWebUpdateAvailable = () => {
+      setSyncFeedback('New web update detected • Applying update...');
+      setTimeout(() => {
+        if (typeof (window as any).AndroidBridge?.reloadLiveCloud === 'function') {
+          (window as any).AndroidBridge.reloadLiveCloud();
+        } else {
+          window.location.reload();
+        }
+      }, 1500);
+    };
+
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     window.addEventListener('offlineQueueUpdated', checkOfflineQueue);
+    window.addEventListener('lspotWebUpdateAvailable', handleWebUpdateAvailable);
 
     // Synchronize automatically every 10 seconds across Web & Android terminals
     const autoSyncTimer = setInterval(runBackgroundSync, 10000);
@@ -174,6 +186,7 @@ export function Navbar({ activeShift }: NavbarProps) {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('offlineQueueUpdated', checkOfflineQueue);
+      window.removeEventListener('lspotWebUpdateAvailable', handleWebUpdateAvailable);
       clearInterval(autoSyncTimer);
     };
   }, []);

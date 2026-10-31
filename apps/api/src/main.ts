@@ -36,20 +36,46 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '2mb' }));
 app.use(morgan('dev'));
 
-// Healthcheck & System Info
-app.get('/health', (req: Request, res: Response) => {
+const API_PREFIX = process.env.API_PREFIX || '/api/v1';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const webDistPath = path.resolve(__dirname, '../../web/dist');
+const serverBootId = `boot-${Date.now()}`;
+
+function getWebBuildId(): string {
+  try {
+    const indexHtmlPath = path.join(webDistPath, 'index.html');
+    if (fs.existsSync(indexHtmlPath)) {
+      const html = fs.readFileSync(indexHtmlPath, 'utf8');
+      const match = html.match(/index-([A-Za-z0-9_-]+)\.js/);
+      if (match && match[1]) {
+        return `web-${match[1]}`;
+      }
+      const stat = fs.statSync(indexHtmlPath);
+      return `web-${Math.floor(stat.mtimeMs)}`;
+    }
+  } catch {
+    // Fallback to boot ID
+  }
+  return serverBootId;
+}
+
+const healthHandler = (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.json({
     status: 'healthy',
     system: 'LSpot Restaurant Manager API',
     location: 'Manyama, Kalumbila, Zambia',
     currency: 'ZMW',
     timezone: 'Africa/Lusaka',
+    buildId: getWebBuildId(),
     timestamp: new Date().toISOString()
   });
-});
+};
 
-// Mount Domain API routes under /api/v1
-const API_PREFIX = process.env.API_PREFIX || '/api/v1';
+// Healthcheck & Live Build Version Info (mounted at both /health and /api/v1/health)
+app.get('/health', healthHandler);
+app.get(`${API_PREFIX}/health`, healthHandler);
 
 app.use(`${API_PREFIX}/auth`, authRouter);
 app.use(`${API_PREFIX}/restaurant`, restaurantRouter);
@@ -66,9 +92,6 @@ app.use(`${API_PREFIX}/sync`, syncRouter);
 app.use(`${API_PREFIX}/zra`, zraRouter);
 
 // Serve static SPA build in production if present on disk
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const webDistPath = path.resolve(__dirname, '../../web/dist');
 if (fs.existsSync(webDistPath)) {
   app.use(
     express.static(webDistPath, {

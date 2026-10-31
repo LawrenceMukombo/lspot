@@ -148,7 +148,7 @@ export async function syncAllOfflineData(): Promise<{
   const token = getAuthToken();
 
   try {
-    // 1. Check server reachability with a fast health ping
+    // 1. Check server reachability & live web build version with a fast health ping
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     const healthRes = await fetch(`${apiBase}/health`, {
@@ -159,6 +159,8 @@ export async function syncAllOfflineData(): Promise<{
     if (!healthRes.ok) {
       return { syncedSales: 0, syncedMutations: 0, remaining: getOfflinePendingCount(), online: false };
     }
+    const healthJson = await healthRes.json().catch(() => null);
+    const remoteBuildId: string | undefined = healthJson?.buildId;
 
     const authHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -244,18 +246,55 @@ export async function syncAllOfflineData(): Promise<{
       );
     }
 
+    const remainingNow = getOfflinePendingCount();
+
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('offlineQueueUpdated'));
       if (syncedSales > 0 || syncedMutations > 0) {
         window.dispatchEvent(new CustomEvent('lspotDataSynced', { detail: { syncedSales, syncedMutations } }));
         window.dispatchEvent(new CustomEvent('kitchenRegisterUpdated'));
       }
+
+      // 5. Over-The-Air (OTA) Web & Android App Version Sync
+      if (remoteBuildId) {
+        const previousBuildId = localStorage.getItem('lspot_active_build_id');
+        if (!previousBuildId) {
+          localStorage.setItem('lspot_active_build_id', remoteBuildId);
+        } else if (previousBuildId !== remoteBuildId && remainingNow === 0) {
+          localStorage.setItem('lspot_active_build_id', remoteBuildId);
+          // Clear outdated Service Worker caches so the new web bundle loads cleanly
+          if ('caches' in window) {
+            caches
+              .keys()
+              .then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+              .catch(() => {});
+          }
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker
+              .getRegistrations()
+              .then((regs) => regs.forEach((r) => r.update()))
+              .catch(() => {});
+          }
+          window.dispatchEvent(
+            new CustomEvent('lspotWebUpdateAvailable', { detail: { buildId: remoteBuildId } })
+          );
+        }
+      }
+
+      // If Android APK booted offline from file:///android_asset and is now online with 0 pending queue, switch to live cloud web app
+      if (
+        remainingNow === 0 &&
+        window.location.protocol === 'file:' &&
+        typeof (window as any).AndroidBridge?.switchToLiveCloud === 'function'
+      ) {
+        (window as any).AndroidBridge.switchToLiveCloud();
+      }
     }
 
     return {
       syncedSales,
       syncedMutations,
-      remaining: getOfflinePendingCount(),
+      remaining: remainingNow,
       online: true
     };
   } catch {

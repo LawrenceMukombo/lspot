@@ -205,7 +205,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    public static class AndroidBridgeInterface {
+    public class AndroidBridgeInterface {
         @JavascriptInterface
         public String getServerUrl() {
             return CLOUD_URL;
@@ -214,6 +214,28 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public String getPlatform() {
             return "android-apk-" + Build.MODEL;
+        }
+
+        @JavascriptInterface
+        public void reloadLiveCloud() {
+            runOnUiThread(() -> {
+                if (webView != null && isNetworkConnected()) {
+                    webView.clearCache(true);
+                    webView.loadUrl(CLOUD_URL + "/?v=" + System.currentTimeMillis());
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void switchToLiveCloud() {
+            runOnUiThread(() -> {
+                if (webView != null && isNetworkConnected()) {
+                    String currentUrl = webView.getUrl();
+                    if (currentUrl != null && currentUrl.startsWith("file:")) {
+                        webView.loadUrl(CLOUD_URL);
+                    }
+                }
+            });
         }
     }
 }
