@@ -1069,8 +1069,18 @@ export function PosView() {
                 <span className="font-bold">{lastReceipt.payments?.[0]?.paymentMethod || 'CASH'}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Time (CAT):</span>
-                <span>{new Date().toLocaleTimeString('en-GB', { timeZone: 'Africa/Lusaka' })}</span>
+                <span className="text-slate-500">Date & Time (CAT):</span>
+                <span>
+                  {new Date(lastReceipt.createdAt || Date.now()).toLocaleString('en-GB', {
+                    timeZone: 'Africa/Lusaka',
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                  })}
+                </span>
               </div>
               <div className="flex justify-between text-sm font-bold border-t border-dashed border-slate-300 dark:border-slate-700 pt-2 text-slate-900 dark:text-white">
                 <span>TOTAL PAID:</span>

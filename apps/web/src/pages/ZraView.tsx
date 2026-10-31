@@ -209,7 +209,17 @@ export function ZraView() {
               {sales.map((sale) => (
                 <tr key={sale.id} className="hover:bg-slate-800/30">
                   <td className="px-4 py-3.5 font-bold text-white font-sans">{sale.saleNumber}</td>
-                  <td className="px-4 py-3.5 text-slate-400">{new Date(sale.createdAt).toLocaleTimeString()}</td>
+                  <td className="px-4 py-3.5 text-slate-400">
+                    {new Date(sale.createdAt).toLocaleString('en-GB', {
+                      timeZone: 'Africa/Lusaka',
+                      day: '2-digit',
+                      month: 'short',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit'
+                    })}
+                  </td>
                   <td className="px-4 py-3.5 font-bold text-amber-400">K {Number(sale.totalAmount).toFixed(2)}</td>
                   <td className="px-4 py-3.5">
                     <span

@@ -231,7 +231,16 @@ export function ShiftsView() {
                 Active Shift: {currentShift.cashier?.fullName || 'Cashier'}
               </h3>
               <span className="text-xs text-slate-400">
-                (Opened {new Date(currentShift.startedAt).toLocaleTimeString()})
+                (Opened{' '}
+                {new Date(currentShift.startedAt).toLocaleString('en-GB', {
+                  timeZone: 'Africa/Lusaka',
+                  day: '2-digit',
+                  month: 'short',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })}
+                )
               </span>
             </div>
             <div className="text-right">

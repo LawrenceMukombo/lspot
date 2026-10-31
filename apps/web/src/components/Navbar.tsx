@@ -85,8 +85,11 @@ export function Navbar({ activeShift }: NavbarProps) {
     const updateTime = () => {
       const now = new Date();
       setTimeStr(
-        now.toLocaleTimeString('en-GB', {
+        now.toLocaleString('en-GB', {
           timeZone: 'Africa/Lusaka',
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
           hour: '2-digit',
           minute: '2-digit',
           second: '2-digit'

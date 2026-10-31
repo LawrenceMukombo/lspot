@@ -552,6 +552,17 @@ export function KitchenView() {
                         {ticket.tableNumber && (
                           <span className="text-xs font-semibold text-amber-400 block mt-0.5">{ticket.tableNumber}</span>
                         )}
+                        <span className="text-[10px] font-mono text-slate-500 block mt-0.5">
+                          {new Date(ticket.createdAt).toLocaleString('en-GB', {
+                            timeZone: 'Africa/Lusaka',
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit'
+                          })}
+                        </span>
                       </div>
 
                       <div className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-mono font-bold ${timerColor}`}>
@@ -697,16 +708,30 @@ export function KitchenView() {
                   </p>
                 ) : (
                   <ul className="space-y-2">
-                    {batches.map((b: any) => (
-                      <li key={b.id} className="bg-slate-950/40 border border-slate-800 rounded-xl p-3 text-sm">
-                        <div className="flex justify-between">
-                          <span className="font-mono text-xs text-slate-400">{b.createdAt ? new Date(b.createdAt).toLocaleTimeString('en-GB', { timeZone: 'Africa/Lusaka' }) : '—'}</span>
-                          <span className="font-mono text-emerald-400 font-bold">+{b.actualPreparedPortions} cooked</span>
-                        </div>
-                        <p className="text-xs text-slate-400 mt-1">Planned {b.plannedPortions} • Yield {b.plannedPortions ? Math.round((b.actualPreparedPortions / b.plannedPortions) * 100) : 0}%</p>
-                        {b.notes && <p className="text-xs text-slate-300 mt-1 break-words">{b.notes}</p>}
-                      </li>
-                    ))}
+                    {batches.map((b: any) => {
+                      const batchTimestamp = b.preparedAt || b.createdAt;
+                      const formattedDateTime = batchTimestamp
+                        ? new Date(batchTimestamp).toLocaleString('en-GB', {
+                            timeZone: 'Africa/Lusaka',
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit'
+                          })
+                        : '—';
+                      return (
+                        <li key={b.id} className="bg-slate-950/40 border border-slate-800 rounded-xl p-3 text-sm">
+                          <div className="flex justify-between items-center gap-2">
+                            <span className="font-mono text-xs text-slate-400">{formattedDateTime}</span>
+                            <span className="font-mono text-emerald-400 font-bold">+{b.actualPreparedPortions} cooked</span>
+                          </div>
+                          <p className="text-xs text-slate-400 mt-1">Planned {b.plannedPortions} • Yield {b.plannedPortions ? Math.round((b.actualPreparedPortions / b.plannedPortions) * 100) : 0}%</p>
+                          {b.notes && <p className="text-xs text-slate-300 mt-1 break-words">{b.notes}</p>}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </DetailSection>
