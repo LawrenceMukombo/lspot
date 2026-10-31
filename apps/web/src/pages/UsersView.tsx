@@ -90,6 +90,19 @@ export function UsersView() {
   const [permissionsSavedMsg, setPermissionsSavedMsg] = useState(false);
   const [rolesList, setRolesList] = useState<any[]>([
     {
+      id: UserRole.SUPER_ADMIN,
+      name: 'Super Administrator',
+      rights: {
+        canVoidSale: true,
+        canGiveDiscount: true,
+        canIssueCredit: true,
+        canDeleteRecord: true,
+        canAuditStock: true,
+        canEditMenu: true,
+        canManageUsers: true
+      }
+    },
+    {
       id: UserRole.OWNER,
       name: 'Owner / Executive Director',
       rights: {
@@ -190,13 +203,13 @@ export function UsersView() {
     const matched = rolesList.find((r) => r.id === roleCode);
     if (matched) return { ...matched.rights };
     return {
-      canVoidSale: [UserRole.MANAGER, UserRole.OWNER].includes(roleCode as any),
-      canGiveDiscount: [UserRole.MANAGER, UserRole.OWNER, UserRole.ACCOUNTANT].includes(roleCode as any),
-      canIssueCredit: [UserRole.MANAGER, UserRole.OWNER, UserRole.ACCOUNTANT, UserRole.CASHIER].includes(roleCode as any),
-      canDeleteRecord: [UserRole.MANAGER, UserRole.OWNER].includes(roleCode as any),
-      canAuditStock: [UserRole.MANAGER, UserRole.OWNER, UserRole.STOREKEEPER, UserRole.CHEF].includes(roleCode as any),
-      canEditMenu: [UserRole.MANAGER, UserRole.OWNER].includes(roleCode as any),
-      canManageUsers: [UserRole.OWNER].includes(roleCode as any)
+      canVoidSale: [UserRole.SUPER_ADMIN, UserRole.MANAGER, UserRole.OWNER].includes(roleCode as any),
+      canGiveDiscount: [UserRole.SUPER_ADMIN, UserRole.MANAGER, UserRole.OWNER, UserRole.ACCOUNTANT].includes(roleCode as any),
+      canIssueCredit: [UserRole.SUPER_ADMIN, UserRole.MANAGER, UserRole.OWNER, UserRole.ACCOUNTANT, UserRole.CASHIER].includes(roleCode as any),
+      canDeleteRecord: [UserRole.SUPER_ADMIN, UserRole.MANAGER, UserRole.OWNER].includes(roleCode as any),
+      canAuditStock: [UserRole.SUPER_ADMIN, UserRole.MANAGER, UserRole.OWNER, UserRole.STOREKEEPER, UserRole.CHEF].includes(roleCode as any),
+      canEditMenu: [UserRole.SUPER_ADMIN, UserRole.MANAGER, UserRole.OWNER].includes(roleCode as any),
+      canManageUsers: [UserRole.SUPER_ADMIN, UserRole.OWNER].includes(roleCode as any)
     };
   };
 
@@ -219,7 +232,7 @@ export function UsersView() {
     setPhone('+260 97 ');
     setRole(UserRole.CASHIER);
     setSupervisorPin('');
-    setPassword('lspot1234');
+    setPassword('');
     setIsActive(true);
     setCustomRights(getRoleDefaultRights(UserRole.CASHIER));
     setUserBiometrics([]);
@@ -326,6 +339,10 @@ export function UsersView() {
         localStorage.setItem(`lspot_user_rights_${editingUser.id}`, JSON.stringify(customRights));
         toast.success(`User profile and permissions for ${fullName} updated.`, 'Staff Profile Updated');
       } else {
+        if (!password) {
+          toast.warning('Please enter an initial password for the new staff member.', 'Password Required');
+          return;
+        }
         const createdUser = await apiRequest('/auth/users', {
           method: 'POST',
           body: JSON.stringify({
@@ -335,7 +352,7 @@ export function UsersView() {
             phone,
             role,
             supervisorPin: supervisorPin || null,
-            password: password || 'lspot1234',
+            password,
             isActive
           })
         });
@@ -813,6 +830,7 @@ export function UsersView() {
                     <option value={UserRole.STOREKEEPER}>Storekeeper (Stock Only)</option>
                     <option value={UserRole.MANAGER}>Restaurant Manager (Full Operations)</option>
                     <option value={UserRole.OWNER}>Owner / Executive Director</option>
+                    <option value={UserRole.SUPER_ADMIN}>Super Administrator</option>
                   </select>
                 </div>
                 <div>
@@ -836,7 +854,7 @@ export function UsersView() {
                     maxLength={6}
                     value={supervisorPin}
                     onChange={(e) => setSupervisorPin(e.target.value)}
-                    placeholder="e.g. 1234"
+                    placeholder="Enter 4-6 digit PIN"
                     className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500 font-mono text-emerald-600 dark:text-emerald-400 font-bold"
                   />
                 </div>
@@ -848,7 +866,7 @@ export function UsersView() {
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder={editingUser ? 'Leave blank to retain' : 'Default: lspot1234'}
+                    placeholder={editingUser ? 'Leave blank to retain' : 'Enter password'}
                     className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus:outline-none focus:border-amber-500"
                   />
                 </div>

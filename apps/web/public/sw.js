@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lspot-pwa-cache-v1.1';
+const CACHE_NAME = 'lspot-pwa-cache-v1.2';
 const APP_SHELL_URLS = [
   '/',
   '/index.html',
@@ -34,8 +34,8 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // Network-first for API requests, falling back to cached GET response if offline
-  if (url.pathname.startsWith('/api/')) {
+  // Network-first for API requests and HTML navigation, falling back to cache if offline
+  if (url.pathname.startsWith('/api/') || request.mode === 'navigate' || url.pathname === '/' || url.pathname === '/index.html') {
     event.respondWith(
       fetch(request)
         .then((response) => {
@@ -45,7 +45,7 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-        .catch(() => caches.match(request))
+        .catch(() => caches.match(request).then((res) => res || caches.match('/index.html')))
     );
     return;
   }
@@ -67,3 +67,4 @@ self.addEventListener('fetch', (event) => {
     })
   );
 });
+

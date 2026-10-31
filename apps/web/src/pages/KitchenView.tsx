@@ -127,7 +127,7 @@ export function KitchenView() {
   const [wasteType, setWasteType] = useState<'WASTE' | 'STAFF' | 'COMPLIMENTARY'>('WASTE');
   const [wasteReason, setWasteReason] = useState('Preparation shrinkage');
 
-  const [supervisorPin, setSupervisorPin] = useState('1234');
+  const [supervisorPin, setSupervisorPin] = useState('');
 
   // Click-to-inspect detail drawer
   const [selectedItem, setSelectedItem] = useState<any>(null);

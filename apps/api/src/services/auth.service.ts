@@ -1,7 +1,15 @@
 import { prisma } from '@lspot/database';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { UserRole, DEFAULT_TENANT_ID } from '@lspot/shared';
+import {
+  UserRole,
+  DEFAULT_TENANT_ID,
+  DEFAULT_BRANCH_ID,
+  RESTAURANT_NAME,
+  RESTAURANT_LOCATION,
+  DEFAULT_CURRENCY,
+  DEFAULT_TIMEZONE
+} from '@lspot/shared';
 import { getJwtSecret } from '../middleware/auth.js';
 
 async function matchesPin(plainPin: string, storedPin: string | null | undefined): Promise<boolean> {
@@ -19,9 +27,116 @@ function maskPin(storedPin: string | null | undefined): string | null {
 }
 
 export class AuthService {
+  private bootstrapCompleted = false;
+
+  private async ensureBootstrapUsers() {
+    if (this.bootstrapCompleted) return;
+    try {
+      const tenant = await prisma.tenant.upsert({
+        where: { id: DEFAULT_TENANT_ID },
+        update: {},
+        create: {
+          id: DEFAULT_TENANT_ID,
+          name: RESTAURANT_NAME,
+          tradingName: RESTAURANT_NAME,
+          country: 'Zambia',
+          currency: DEFAULT_CURRENCY,
+          timezone: DEFAULT_TIMEZONE,
+          isActive: true
+        }
+      });
+
+      const branch = await prisma.branch.upsert({
+        where: { id: DEFAULT_BRANCH_ID },
+        update: {},
+        create: {
+          id: DEFAULT_BRANCH_ID,
+          tenantId: tenant.id,
+          name: 'Manyama Main Branch',
+          code: 'MNY-01',
+          address: RESTAURANT_LOCATION,
+          phone: '+260 97 000 0000',
+          isMain: true,
+          isActive: true
+        }
+      });
+
+      const bootstrapAccounts = [
+        {
+          id: '00000000-0000-0000-0000-000000000001',
+          username: 'superadmin',
+          fullName: 'Lawrence Mukombo (Super Admin)',
+          role: UserRole.SUPER_ADMIN,
+          email: 'admin@lamtoninvestments.com',
+          passwordPlain: process.env.SUPER_ADMIN_PASSWORD || 'LSpot@Admin2026!',
+          supervisorPin: process.env.SUPER_ADMIN_PIN || '8899'
+        },
+        {
+          id: '11111111-1111-1111-1111-111111111111',
+          username: 'owner',
+          fullName: 'Executive Owner',
+          role: UserRole.OWNER,
+          email: 'owner@lspot.zm',
+          passwordPlain: process.env.OWNER_PASSWORD || 'LSpot@Owner2026!',
+          supervisorPin: process.env.OWNER_PIN || '9999'
+        },
+        {
+          id: '22222222-2222-2222-2222-222222222222',
+          username: 'manager',
+          fullName: 'Mulenga Banda (Manager)',
+          role: UserRole.MANAGER,
+          email: 'manager@lspot.zm',
+          passwordPlain: process.env.MANAGER_PASSWORD || 'LSpot@Manager2026!',
+          supervisorPin: process.env.MANAGER_PIN || '1234'
+        }
+      ];
+
+      for (const acct of bootstrapAccounts) {
+        const existing = await prisma.user.findUnique({ where: { username: acct.username } });
+        const passwordHash = await bcrypt.hash(acct.passwordPlain, 10);
+        if (!existing) {
+          await prisma.user.create({
+            data: {
+              id: acct.id,
+              tenantId: tenant.id,
+              branchId: branch.id,
+              username: acct.username,
+              fullName: acct.fullName,
+              email: acct.email,
+              passwordHash,
+              supervisorPin: acct.supervisorPin,
+              role: acct.role,
+              isActive: true
+            }
+          });
+        } else if (!existing.lastLoginAt) {
+          // Ensure initial production password and PIN are active before first login
+          await prisma.user.update({
+            where: { id: existing.id },
+            data: {
+              passwordHash,
+              supervisorPin: acct.supervisorPin,
+              role: acct.role,
+              isActive: true
+            }
+          });
+        }
+      }
+
+      this.bootstrapCompleted = true;
+    } catch (err) {
+      console.warn('Bootstrap user check skipped:', err);
+    }
+  }
+
   async login(username: string, passwordPlain: string) {
+    await this.ensureBootstrapUsers();
+    const normalizedUsername = username.trim().toLowerCase();
     const user = await prisma.user.findFirst({
-      where: { username, isActive: true },
+      where: {
+        username: { equals: normalizedUsername, mode: 'insensitive' },
+        isActive: true
+      },
       include: { tenant: true }
     });
 
@@ -64,6 +179,7 @@ export class AuthService {
   }
 
   async loginWithPin(pin: string, options?: { username?: string; tenantId?: string }) {
+    await this.ensureBootstrapUsers();
     const targetTenantId = options?.tenantId || DEFAULT_TENANT_ID;
     const candidates = await prisma.user.findMany({
       where: {
@@ -157,6 +273,7 @@ export class AuthService {
   }
 
   async getUsers(tenantId: string) {
+    await this.ensureBootstrapUsers();
     const users = await prisma.user.findMany({
       where: { tenantId },
       select: {

@@ -66,7 +66,7 @@ export function SalesRegisterView() {
   // Reversal Modal State
   const [reversalTargetSale, setReversalTargetSale] = useState<DailySale | null>(null);
   const [reversalReason, setReversalReason] = useState('Customer changed mind / Wrong order entered');
-  const [supervisorPin, setSupervisorPin] = useState('1234');
+  const [supervisorPin, setSupervisorPin] = useState('');
   const [isReversing, setIsReversing] = useState(false);
   const [reversalError, setReversalError] = useState<string | null>(null);
 
@@ -102,7 +102,7 @@ export function SalesRegisterView() {
   const handleOpenReverseModal = (sale: DailySale) => {
     setReversalTargetSale(sale);
     setReversalReason('Customer cancelled order / voided');
-    setSupervisorPin('1234');
+    setSupervisorPin('');
     setReversalError(null);
   };
 
@@ -577,7 +577,7 @@ export function SalesRegisterView() {
                   value={supervisorPin}
                   onChange={(e) => setSupervisorPin(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-800 font-mono focus:outline-none focus:border-rose-500"
-                  placeholder="Enter 4-digit supervisor PIN (Default: 1234)"
+                  placeholder="Enter supervisor PIN"
                 />
               </div>
             </div>

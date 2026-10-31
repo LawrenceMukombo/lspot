@@ -101,47 +101,36 @@ export function App() {
           user: any;
         }> = [
           {
+            username: 'superadmin',
+            password: 'LSpot@Admin2026!',
+            pin: '8899',
+            user: {
+              id: '00000000-0000-0000-0000-000000000099',
+              username: 'superadmin',
+              fullName: 'System Super Administrator',
+              role: 'SUPER_ADMIN'
+            }
+          },
+          {
+            username: 'owner',
+            password: 'LSpot@Owner2026!',
+            pin: '9999',
+            user: {
+              id: '11111111-1111-1111-1111-111111111111',
+              username: 'owner',
+              fullName: 'Restaurant Owner',
+              role: 'OWNER'
+            }
+          },
+          {
             username: 'manager',
-            password: 'password123',
+            password: 'LSpot@Manager2026!',
             pin: '1234',
             user: {
               id: '22222222-2222-2222-2222-222222222222',
               username: 'manager',
               fullName: 'Mulenga Banda (Manager)',
               role: 'MANAGER'
-            }
-          },
-          {
-            username: 'owner',
-            password: 'password123',
-            pin: '9999',
-            user: {
-              id: '11111111-1111-1111-1111-111111111111',
-              username: 'owner',
-              fullName: 'Chanda Mwale (Owner)',
-              role: 'OWNER'
-            }
-          },
-          {
-            username: 'cashier1',
-            password: 'password123',
-            pin: '2222',
-            user: {
-              id: '44444444-4444-4444-4444-444444444444',
-              username: 'cashier1',
-              fullName: 'Mutale Phiri (Cashier)',
-              role: 'CASHIER'
-            }
-          },
-          {
-            username: 'chef',
-            password: 'password123',
-            pin: '3333',
-            user: {
-              id: '55555555-5555-5555-5555-555555555555',
-              username: 'chef',
-              fullName: 'Bwalya Tembo (Head Chef)',
-              role: 'CHEF'
             }
           }
         ];
@@ -229,10 +218,11 @@ export function App() {
                 <input
                   id="login-username"
                   type="text"
+                  autoComplete="username"
                   required={loginMode === 'credentials'}
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="e.g. manager, cashier1, chef"
+                  placeholder="Enter your username"
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500"
                 />
               </div>
@@ -245,6 +235,7 @@ export function App() {
                   <input
                     id="login-password"
                     type="password"
+                    autoComplete="current-password"
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -278,10 +269,6 @@ export function App() {
                 <Lock className="w-4 h-4" />
                 <span>{isSubmitting ? 'Signing In...' : 'Sign In to Terminal'}</span>
               </button>
-
-              <p className="text-[11px] text-center text-slate-400 font-mono pt-1">
-                Default Access: <span className="text-amber-400">manager</span> / <span className="text-amber-400">password123</span> or PIN <span className="text-amber-400">1234</span>
-              </p>
             </form>
           </div>
         </div>

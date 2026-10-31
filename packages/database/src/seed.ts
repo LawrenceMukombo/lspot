@@ -93,17 +93,24 @@ export async function seedDatabase() {
   }
 
   // 3. Users with secure hashed passwords
-  const passwordHash = await bcrypt.hash('lspot1234', 10);
-  const defaultPin = '1234';
-
   const defaultUsers = [
+    {
+      id: '00000000-0000-0000-0000-000000000001',
+      username: 'superadmin',
+      fullName: 'Lawrence Mukombo (Super Admin)',
+      role: UserRole.SUPER_ADMIN,
+      email: 'admin@lamtoninvestments.com',
+      passwordPlain: process.env.SUPER_ADMIN_PASSWORD || 'LSpot@Admin2026!',
+      supervisorPin: process.env.SUPER_ADMIN_PIN || '8899'
+    },
     {
       id: '11111111-1111-1111-1111-111111111111',
       username: 'owner',
-      fullName: 'Restaurant Owner',
+      fullName: 'Executive Owner',
       role: UserRole.OWNER,
       email: 'owner@lspot.zm',
-      supervisorPin: defaultPin
+      passwordPlain: process.env.OWNER_PASSWORD || 'LSpot@Owner2026!',
+      supervisorPin: process.env.OWNER_PIN || '9999'
     },
     {
       id: '22222222-2222-2222-2222-222222222222',
@@ -111,7 +118,8 @@ export async function seedDatabase() {
       fullName: 'Mulenga Banda (Manager)',
       role: UserRole.MANAGER,
       email: 'manager@lspot.zm',
-      supervisorPin: defaultPin
+      passwordPlain: process.env.MANAGER_PASSWORD || 'LSpot@Manager2026!',
+      supervisorPin: process.env.MANAGER_PIN || '1234'
     },
     {
       id: '33333333-3333-3333-3333-333333333333',
@@ -119,7 +127,8 @@ export async function seedDatabase() {
       fullName: 'Chileshe Mwewa (Head Chef)',
       role: UserRole.CHEF,
       email: 'chef@lspot.zm',
-      supervisorPin: defaultPin
+      passwordPlain: 'LSpot@Chef2026!',
+      supervisorPin: '3344'
     },
     {
       id: '44444444-4444-4444-4444-444444444444',
@@ -127,7 +136,8 @@ export async function seedDatabase() {
       fullName: 'Bupe Tembo (Cashier)',
       role: UserRole.CASHIER,
       email: 'cashier1@lspot.zm',
-      supervisorPin: '0000'
+      passwordPlain: 'LSpot@Cash2026!',
+      supervisorPin: '2222'
     },
     {
       id: '55555555-5555-5555-5555-555555555555',
@@ -135,16 +145,19 @@ export async function seedDatabase() {
       fullName: 'Kelvin Musonda (Storekeeper)',
       role: UserRole.STOREKEEPER,
       email: 'stores@lspot.zm',
-      supervisorPin: '0000'
+      passwordPlain: 'LSpot@Store2026!',
+      supervisorPin: '5566'
     }
   ];
 
   for (const u of defaultUsers) {
+    const passwordHash = await bcrypt.hash(u.passwordPlain, 10);
     await prisma.user.upsert({
       where: { username: u.username },
       update: {
         fullName: u.fullName,
         role: u.role,
+        passwordHash,
         supervisorPin: u.supervisorPin,
         isActive: true
       },
@@ -380,63 +393,6 @@ export async function seedDatabase() {
     });
   }
 
-  // 7. Customers & Credit Accounts
-  const sampleCustomers = [
-    {
-      id: 'cust-001',
-      name: 'Kalumbila Mining Services Ltd',
-      customerType: 'CORPORATE',
-      phone: '+260 97 111 2233',
-      email: 'procurement@kalumbilamining.zm',
-      tpin: '1002345678',
-      creditLimit: 15000.0,
-      currentBalance: 3250.0,
-      paymentTermsDays: 30
-    },
-    {
-      id: 'cust-002',
-      name: 'Manyama Transport & Logistics',
-      customerType: 'CORPORATE',
-      phone: '+260 96 444 5566',
-      email: 'accounts@manyamatransport.zm',
-      creditLimit: 8000.0,
-      currentBalance: 1450.0,
-      paymentTermsDays: 14
-    },
-    {
-      id: 'cust-003',
-      name: 'Dr. Mwape Kangwa',
-      customerType: 'INDIVIDUAL',
-      phone: '+260 97 777 8899',
-      creditLimit: 2000.0,
-      currentBalance: 420.0,
-      paymentTermsDays: 7
-    }
-  ];
-
-  for (const c of sampleCustomers) {
-    await prisma.customer.upsert({
-      where: { id: c.id },
-      update: {
-        creditLimit: c.creditLimit,
-        currentBalance: c.currentBalance
-      },
-      create: {
-        id: c.id,
-        tenantId: tenant.id,
-        name: c.name,
-        customerType: c.customerType,
-        phone: c.phone,
-        email: c.email,
-        tpin: c.tpin,
-        creditLimit: c.creditLimit,
-        currentBalance: c.currentBalance,
-        paymentTermsDays: c.paymentTermsDays,
-        isActive: true
-      }
-    });
-  }
-
   // 8. Expense Categories
   const expenseCategories = [
     { id: 'exp-001', code: 'UTILITIES', name: 'Utilities & ZESCO Power' },
@@ -459,7 +415,66 @@ export async function seedDatabase() {
     });
   }
 
-  // 9. Realistic Daily Expenses
+  // Optional demo transactions (disabled by default in production)
+  if (process.env.SEED_DEMO_TRANSACTIONS === 'true') {
+    // 7. Customers & Credit Accounts
+    const sampleCustomers = [
+      {
+        id: 'cust-001',
+        name: 'Kalumbila Mining Services Ltd',
+        customerType: 'CORPORATE',
+        phone: '+260 97 111 2233',
+        email: 'procurement@kalumbilamining.zm',
+        tpin: '1002345678',
+        creditLimit: 15000.0,
+        currentBalance: 3250.0,
+        paymentTermsDays: 30
+      },
+      {
+        id: 'cust-002',
+        name: 'Manyama Transport & Logistics',
+        customerType: 'CORPORATE',
+        phone: '+260 96 444 5566',
+        email: 'accounts@manyamatransport.zm',
+        creditLimit: 8000.0,
+        currentBalance: 1450.0,
+        paymentTermsDays: 14
+      },
+      {
+        id: 'cust-003',
+        name: 'Dr. Mwape Kangwa',
+        customerType: 'INDIVIDUAL',
+        phone: '+260 97 777 8899',
+        creditLimit: 2000.0,
+        currentBalance: 420.0,
+        paymentTermsDays: 7
+      }
+    ];
+
+    for (const c of sampleCustomers) {
+      await prisma.customer.upsert({
+        where: { id: c.id },
+        update: {
+          creditLimit: c.creditLimit,
+          currentBalance: c.currentBalance
+        },
+        create: {
+          id: c.id,
+          tenantId: tenant.id,
+          name: c.name,
+          customerType: c.customerType,
+          phone: c.phone,
+          email: c.email,
+          tpin: c.tpin,
+          creditLimit: c.creditLimit,
+          currentBalance: c.currentBalance,
+          paymentTermsDays: c.paymentTermsDays,
+          isActive: true
+        }
+      });
+    }
+
+    // 9. Realistic Daily Expenses
   const todayDate = new Date();
   const sampleExpenses = [
     {
@@ -730,6 +745,7 @@ export async function seedDatabase() {
         reference: s.payment.reference
       }
     });
+  }
   }
 
   console.log('Seeding completed successfully!');
