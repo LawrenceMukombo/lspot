@@ -39,14 +39,19 @@ restaurantRouter.get('/branches', authenticate, async (req: RequestWithUser, res
   }
 });
 
-restaurantRouter.get('/integrations', authenticate, async (req: RequestWithUser, res: Response) => {
-  try {
-    const config = await restaurantService.getIntegrationsConfig(req.user!.tenantId);
-    return res.json({ success: true, data: config });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+restaurantRouter.get(
+  '/integrations',
+  authenticate,
+  requireRole(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER),
+  async (req: RequestWithUser, res: Response) => {
+    try {
+      const config = await restaurantService.getIntegrationsConfig(req.user!.tenantId);
+      return res.json({ success: true, data: config });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
   }
-});
+);
 
 restaurantRouter.put(
   '/integrations',

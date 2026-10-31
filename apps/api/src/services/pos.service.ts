@@ -8,6 +8,7 @@ import {
   roundTo2Decimals
 } from '@lspot/shared';
 import { restaurantService } from './restaurant.service.js';
+import { dpoService } from './dpo.service.js';
 import { kitchenService, getLusakaBusinessDateBounds } from './kitchen.service.js';
 import { LEGACY_DEMO_SALE_IDS } from './finance.service.js';
 
@@ -112,14 +113,59 @@ export class PosService {
   }
 
   async checkout(tenantId: string, branchId: string, cashierId: string, data: any) {
-    // 1. Idempotency check
+    // 1. Idempotency check (scoped to tenantId)
     if (data.idempotencyKey) {
       const existing = await prisma.sale.findUnique({
         where: { idempotencyKey: data.idempotencyKey },
         include: { items: { include: { menuItem: true } }, payments: true }
       });
       if (existing) {
+        if (existing.tenantId !== tenantId) {
+          throw new Error('Idempotency key conflict across tenant boundary.');
+        }
         return existing;
+      }
+    }
+
+    const integrations = await restaurantService.getIntegrationsConfig(tenantId);
+    const zraCfg = integrations.zraConfig;
+
+    // 1b. Pre-flight DPO Mobile Money Verification & Anti-Replay Check
+    const mobilePayments = (data.payments || []).filter(
+      (p: any) => p.method === PaymentMethod.AIRTEL_MONEY || p.method === PaymentMethod.MTN_MOMO
+    );
+    const totalMobilePaymentAmount = roundTo2Decimals(
+      mobilePayments.reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0)
+    );
+    let dpoVerification: Awaited<ReturnType<typeof this.getMobileMoneyPaymentStatus>> | null = null;
+
+    if (mobilePayments.length > 0) {
+      if (!data.dpoTransactionToken) {
+        throw new Error('A DPO payment confirmation is required for mobile-money sales.');
+      }
+      const tokenConsumeKey = `dpo_token_used_${data.dpoTransactionToken}`;
+      const alreadyConsumed = await prisma.syncCommand.findUnique({
+        where: { idempotencyKey: tokenConsumeKey }
+      });
+      if (alreadyConsumed) {
+        throw new Error('This DPO mobile-money payment token has already been used for a completed sale.');
+      }
+
+      dpoVerification = await this.getMobileMoneyPaymentStatus(data.dpoTransactionToken, tenantId);
+      if (dpoVerification.status !== 'PAID' && dpoVerification.status !== 'AUTHORIZED') {
+        throw new Error('DPO has not confirmed this mobile-money payment yet.');
+      }
+      if (Math.abs(dpoVerification.transactionAmount - totalMobilePaymentAmount) > 0.01) {
+        throw new Error('The DPO payment amount does not match this sale.');
+      }
+      const expectedCurrency = (integrations.dpoConfig?.currency || 'ZMW').toUpperCase();
+      if (
+        dpoVerification.transactionCurrency &&
+        dpoVerification.transactionCurrency.toUpperCase() !== expectedCurrency
+      ) {
+        throw new Error(
+          `DPO payment currency (${dpoVerification.transactionCurrency}) does not match expected currency (${expectedCurrency}).`
+        );
       }
     }
 
@@ -134,9 +180,6 @@ export class PosService {
 
     const ensuredTodayRegister = await kitchenService.getTodayRegister(tenantId, branchId);
     const { businessDateUtc } = getLusakaBusinessDateBounds();
-
-    const integrations = await restaurantService.getIntegrationsConfig(tenantId);
-    const zraCfg = integrations.zraConfig;
 
     // 3. Atomic Execution: Pre-flight validation + Sale + Items + Payments + Stock/Kitchen Update + Customer Balance + Shift Cash
     return prisma.$transaction(async (tx: any) => {
@@ -254,6 +297,36 @@ export class PosService {
         throw new Error(
           `Payment total (K ${totalPayments.toFixed(2)}) is less than the order total (K ${computedTotalAmount.toFixed(2)})`
         );
+      }
+
+      // Authoritative server-side amount check & atomic DPO token consumption
+      if (mobilePayments.length > 0 && dpoVerification && data.dpoTransactionToken) {
+        if (
+          mobilePayments.length === data.payments.length &&
+          Math.abs(dpoVerification.transactionAmount - computedTotalAmount) > 0.01
+        ) {
+          throw new Error(
+            `The DPO confirmed amount (K ${dpoVerification.transactionAmount.toFixed(2)}) does not match the authoritative order total (K ${computedTotalAmount.toFixed(2)}).`
+          );
+        }
+
+        await tx.syncCommand.create({
+          data: {
+            deviceId: 'dpo-pos-checkout',
+            idempotencyKey: `dpo_token_used_${data.dpoTransactionToken}`,
+            commandType: 'DPO_TOKEN_CONSUMED',
+            payload: {
+              tenantId,
+              cashierId,
+              saleNumber,
+              dpoTransactionToken: data.dpoTransactionToken,
+              transactionReference: dpoVerification.transactionReference,
+              amount: dpoVerification.transactionAmount
+            },
+            status: 'PROCESSED',
+            clientTime: new Date()
+          }
+        });
       }
 
       // Customer credit headroom verification inside atomic transaction
@@ -732,21 +805,23 @@ export class PosService {
       throw new Error('Please provide a valid Zambian Airtel or MTN subscriber phone number.');
     }
 
-    const integrations = await restaurantService.getIntegrationsConfig(tenantId);
-    const momo = integrations.momoConfig;
     const isAirtel = payload.provider === PaymentMethod.AIRTEL_MONEY || payload.provider === 'AIRTEL_MONEY';
-
-    if (isAirtel && !momo.airtelEnabled) {
-      throw new Error('Airtel Money gateway is currently disabled in System Settings.');
-    }
-    if (!isAirtel && !momo.mtnEnabled) {
-      throw new Error('MTN Mobile Money gateway is currently disabled in System Settings.');
-    }
-
+    const integrations = await restaurantService.getIntegrationsConfig(tenantId);
+    const dpoConfig = integrations.dpoConfig;
+    if (!dpoConfig.enabled) throw new Error('DPO mobile-money collection is disabled by an administrator.');
+    if (isAirtel && !dpoConfig.airtelEnabled) throw new Error('Airtel Money is disabled in DPO settings.');
+    if (!isAirtel && !dpoConfig.mtnEnabled) throw new Error('MTN MoMo is disabled in DPO settings.');
     const prefix = isAirtel ? 'AIRTEL' : 'MTN';
-    const txRef = payload.reference || `${prefix}-${Date.now().toString().slice(-6)}`;
-    const environment = isAirtel ? momo.airtelEnvironment : momo.mtnEnvironment;
-    const merchantTill = isAirtel ? momo.airtelMerchantNumber : momo.mtnMerchantTill;
+    const txRef = payload.reference || `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+    const dpoPayment = await dpoService.requestMobilePayment({
+      amount: Number(payload.amount),
+      phone: cleanedPhone,
+      provider: isAirtel ? 'AIRTEL_MONEY' : 'MTN_MOMO',
+      companyReference: txRef,
+      country: dpoConfig.country,
+      currency: dpoConfig.currency,
+      mno: isAirtel ? dpoConfig.airtelMno : dpoConfig.mtnMno
+    });
 
     await prisma.auditEvent.create({
       data: {
@@ -760,20 +835,43 @@ export class PosService {
           phone: cleanedPhone,
           amount: Number(payload.amount),
           reference: txRef,
-          environment,
-          merchantTill
+          dpoTransactionToken: dpoPayment.transactionToken,
+          dpoTransactionRef: dpoPayment.transactionRef
         }
       }
     });
 
     return {
       status: 'PUSH_SENT',
-      transactionRef: txRef,
+      transactionToken: dpoPayment.transactionToken,
+      transactionRef: dpoPayment.transactionRef,
       provider: payload.provider,
-      environment,
-      merchantTill,
-      message: `USSD PIN prompt sent to ${cleanedPhone} via ${isAirtel ? 'Airtel Money' : 'MTN MoMo'} (${environment.toUpperCase()} - Till ${merchantTill}).`
+      instructions: dpoPayment.instructions,
+      redirectUrl: dpoPayment.redirectUrl,
+      redirectOption: dpoPayment.redirectOption,
+      message: `DPO sent a payment request to ${cleanedPhone} via ${isAirtel ? 'Airtel Money' : 'MTN MoMo'}.`
     };
+  }
+
+  async getMobileMoneyPaymentStatus(transactionToken: string, tenantId?: string) {
+    if (tenantId) {
+      const recentPushes = await prisma.auditEvent.findMany({
+        where: {
+          tenantId,
+          action: 'MOMO_USSD_PUSH_INITIATED',
+          entityType: 'MobileMoneyPayment'
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 100
+      });
+      const belongsToTenant = recentPushes.some(
+        (ev: any) => (ev.details as any)?.dpoTransactionToken === transactionToken
+      );
+      if (!belongsToTenant) {
+        throw new Error('This DPO payment token was not initiated by your restaurant terminal.');
+      }
+    }
+    return dpoService.verifyMobilePayment(transactionToken);
   }
 
   async getKdsTickets(tenantId: string) {

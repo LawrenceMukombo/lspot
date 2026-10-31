@@ -6,8 +6,10 @@ import {
   calculateShiftCashReconciliation,
   calculateGrossProfit,
   formatZMW,
-  roundTo2Decimals
+  roundTo2Decimals,
+  PaymentMethod
 } from '@lspot/shared';
+import { InitiateMoMoPushSchema, PosCheckoutSchema } from '@lspot/validation';
 
 test('Test 1: Moving Weighted Average Cost (WAC) calculation on receiving raw ingredients', () => {
   // Existing 100 kg mealie meal @ K 10.00/kg (Value = K 1,000)
@@ -121,4 +123,35 @@ test('Test 9: Consolidated daily billing allocation without duplicate debt', () 
   // Rule: Consolidation must NOT add 210 again to initialCustomerBalance
   const updatedCustomerBalance = initialCustomerBalance; // remains K 210
   assert.strictEqual(updatedCustomerBalance, 210, 'Consolidated invoice generation must preserve customer balance without duplicate debit');
+});
+
+test('Test 10: DPO Mobile Money validation and anti-replay token protection', () => {
+  // Valid Airtel Money push request
+  const validPush = InitiateMoMoPushSchema.safeParse({
+    provider: PaymentMethod.AIRTEL_MONEY,
+    phone: '+260 97 1234567',
+    amount: 130.0
+  });
+  assert.strictEqual(validPush.success, true, 'Valid Zambian Airtel Money payload must pass');
+
+  // Invalid phone / negative amount must be rejected
+  const invalidPush = InitiateMoMoPushSchema.safeParse({
+    provider: PaymentMethod.MTN_MOMO,
+    phone: 'abc-script',
+    amount: -50
+  });
+  assert.strictEqual(invalidPush.success, false, 'Malformed phone and negative amount must be rejected');
+
+  // XML injection / invalid token characters in dpoTransactionToken must be rejected
+  const maliciousTokenCheckout = PosCheckoutSchema.safeParse({
+    idempotencyKey: '11111111-2222-3333-4444-555555555555',
+    dpoTransactionToken: '<TransactionToken>999</TransactionToken>',
+    orderType: 'DINE_IN',
+    items: [{ menuItemId: 'item-1', unitPrice: 65, quantity: 1 }],
+    subtotal: 65,
+    discountAmount: 0,
+    totalAmount: 65,
+    payments: [{ method: PaymentMethod.AIRTEL_MONEY, amount: 65 }]
+  });
+  assert.strictEqual(maliciousTokenCheckout.success, false, 'XML/special characters in dpoTransactionToken must be rejected');
 });

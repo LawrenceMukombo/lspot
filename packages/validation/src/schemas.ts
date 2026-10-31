@@ -174,6 +174,7 @@ export const CartItemSchema = z.object({
 
 export const PosCheckoutSchema = z.object({
   idempotencyKey: z.string().min(1),
+  dpoTransactionToken: z.string().regex(/^[A-Za-z0-9-]+$/, 'Invalid DPO transaction token format').min(6).max(128).optional(),
   customerId: z.string().optional().nullable(),
   orderType: z.enum(['DINE_IN', 'TAKEAWAY']).default('DINE_IN'),
   tableNumber: z.string().optional().nullable(),
@@ -189,6 +190,16 @@ export const PosCheckoutSchema = z.object({
       notes: z.string().optional().nullable()
     })
   ).min(1, 'At least one payment entry is required')
+});
+
+export const InitiateMoMoPushSchema = z.object({
+  provider: z.enum([PaymentMethod.AIRTEL_MONEY, PaymentMethod.MTN_MOMO]),
+  phone: z
+    .string()
+    .trim()
+    .regex(/^\+?[0-9\s-]{9,18}$/, 'Please enter a valid Zambian mobile money phone number'),
+  amount: z.number().positive('Payment amount must be greater than zero').max(500000, 'Payment amount exceeds maximum single transaction limit'),
+  reference: z.string().max(64).optional()
 });
 
 // Customer Credit Schemas

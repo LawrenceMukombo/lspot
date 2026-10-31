@@ -21,7 +21,6 @@ import {
   Phone,
   WifiOff,
   Calculator,
-  KeyRound,
   ShieldCheck
 } from 'lucide-react';
 import { apiRequest } from '../api.js';
@@ -76,11 +75,12 @@ export function PosView() {
   const [lastReceipt, setLastReceipt] = useState<any>(null);
   const [activeShift, setActiveShift] = useState<any>(null);
 
-  // Mobile Money API & PIN Prompt State
+  // DPO mobile-money collection state. PINs are entered only on the customer's wallet prompt.
   const [momoPhone, setMomoPhone] = useState('+260 97 ');
-  const [momoPin, setMomoPin] = useState('');
-  const [momoPromptStage, setMomoPromptStage] = useState<'IDLE' | 'PUSHING' | 'WAITING_PIN' | 'APPROVED'>('IDLE');
-  const [momoCountdown, setMomoCountdown] = useState(30);
+  const [momoPromptStage, setMomoPromptStage] = useState<'IDLE' | 'PUSHING' | 'WAITING' | 'APPROVED' | 'FAILED'>('IDLE');
+  const [momoTransactionToken, setMomoTransactionToken] = useState('');
+  const [momoInstructions, setMomoInstructions] = useState('');
+  const [momoRedirectUrl, setMomoRedirectUrl] = useState('');
 
   // POS Embedded Smart Calculator
   const [showPosCalculator, setShowPosCalculator] = useState(false);
@@ -224,6 +224,17 @@ export function PosView() {
       : 0;
   const cartNetTotal = Math.max(0, cartSubtotal - loyaltyDiscount);
 
+  // Reset DPO mobile-money state whenever the order total changes so a previous payment token cannot be reused for a modified cart
+  useEffect(() => {
+    if (momoPromptStage !== 'IDLE' || momoTransactionToken) {
+      setMomoPromptStage('IDLE');
+      setMomoTransactionToken('');
+      setMomoInstructions('');
+      setMomoRedirectUrl('');
+      setPaymentReference('');
+    }
+  }, [cartNetTotal]);
+
   const filteredItems = items.filter((item) => {
     const matchesCat = activeCategory === 'ALL' || item.categoryId === activeCategory;
     const matchesSearch = item.name.toLowerCase().includes(search.toLowerCase());
@@ -250,20 +261,47 @@ export function PosView() {
           amount: cartNetTotal
         })
       });
-      if (pushRes?.transactionRef) {
-        setPaymentReference(pushRes.transactionRef);
-      }
+      if (!pushRes?.transactionToken) throw new Error('DPO did not return a payment token.');
+      setPaymentReference(pushRes.transactionRef || '');
+      setMomoTransactionToken(pushRes.transactionToken);
+      setMomoInstructions(pushRes.instructions || 'Approve the payment request on the customer’s phone.');
+      setMomoRedirectUrl(pushRes.redirectUrl || '');
+      setMomoPromptStage('WAITING');
       toast.info(
-        pushRes?.message || `USSD PIN prompt dispatched to ${momoPhone}.`,
+        pushRes.message || `Payment request dispatched to ${momoPhone}.`,
         'Mobile Money Push Sent'
       );
-    } catch {
-      toast.info(`USSD PIN prompt simulated for ${momoPhone}.`, 'Mobile Money Sandbox Push');
+    } catch (err: any) {
+      setMomoPromptStage('FAILED');
+      toast.critical(err?.message || 'DPO could not start the mobile-money payment.', 'Mobile Money Request Failed');
     }
-    setTimeout(() => {
-      setMomoPromptStage('WAITING_PIN');
-    }, 900);
   };
+
+  useEffect(() => {
+    if (!momoTransactionToken || momoPromptStage !== 'WAITING') return;
+    let active = true;
+    const checkStatus = async () => {
+      try {
+        const payment = await apiRequest(`/pos/momo-status/${encodeURIComponent(momoTransactionToken)}`);
+        if (!active) return;
+        if (payment?.status === 'PAID' || payment?.status === 'AUTHORIZED') {
+          setMomoPromptStage('APPROVED');
+          toast.success('Payment confirmed by DPO. You can now complete the sale.', 'Mobile Money Approved');
+        } else if (payment?.status === 'FAILED') {
+          setMomoPromptStage('FAILED');
+          toast.warning(payment?.explanation || 'The mobile-money payment was not completed.', 'Payment Not Completed');
+        }
+      } catch {
+        // Keep waiting: temporary network failures must never turn into a paid sale.
+      }
+    };
+    void checkStatus();
+    const timer = window.setInterval(() => void checkStatus(), 3000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [momoTransactionToken, momoPromptStage]);
 
   const handleCheckoutSubmit = async () => {
     if (cart.length === 0) return;
@@ -283,15 +321,9 @@ export function PosView() {
 
     // Mobile Money Verification
     if (paymentMethod === PaymentMethod.AIRTEL_MONEY || paymentMethod === PaymentMethod.MTN_MOMO) {
-      if (momoPromptStage !== 'WAITING_PIN' && momoPromptStage !== 'APPROVED') {
-        handleInitiateMoMoPush();
-        return;
-      }
-      if (!momoPin || momoPin.length < 4) {
-        toast.warning(
-          'Please enter the 4-digit Mobile Money subscriber PIN authorization code.',
-          'Subscriber PIN Required'
-        );
+      if (momoPromptStage !== 'APPROVED') {
+        if (momoPromptStage === 'IDLE' || momoPromptStage === 'FAILED') void handleInitiateMoMoPush();
+        else toast.info('Waiting for DPO to confirm the customer payment.', 'Payment Pending');
         return;
       }
     }
@@ -305,6 +337,10 @@ export function PosView() {
 
     const payload = {
       idempotencyKey: crypto.randomUUID(),
+      dpoTransactionToken:
+        paymentMethod === PaymentMethod.AIRTEL_MONEY || paymentMethod === PaymentMethod.MTN_MOMO
+          ? momoTransactionToken
+          : undefined,
       customerId: paymentMethod === PaymentMethod.CUSTOMER_CREDIT && selectedCustomerId ? selectedCustomerId : undefined,
       orderType,
       tableNumber: tableNumber || undefined,
@@ -335,7 +371,26 @@ export function PosView() {
           method: 'POST',
           body: JSON.stringify(payload)
         });
-      } catch (networkErr) {
+      } catch (checkoutErr: any) {
+        const errMsg = String(checkoutErr?.message || '');
+        const isOfflineNetworkFailure =
+          !navigator.onLine ||
+          errMsg.includes('Offline Mode') ||
+          errMsg.includes('Unable to reach server') ||
+          errMsg.includes('Failed to fetch');
+
+        // Never swallow server-side payment or stock rejections into the offline queue
+        if (!isOfflineNetworkFailure) {
+          throw checkoutErr;
+        }
+        // Mobile money requires live DPO confirmation before queueing
+        if (
+          (paymentMethod === PaymentMethod.AIRTEL_MONEY || paymentMethod === PaymentMethod.MTN_MOMO) &&
+          !momoTransactionToken
+        ) {
+          throw new Error('Mobile money sales require live DPO payment confirmation.');
+        }
+
         // Manyama offline local queue fallback
         const offlineQueueKey = 'lspot_offline_sales_queue';
         const existingQueue = JSON.parse(localStorage.getItem(offlineQueueKey) || '[]');
@@ -407,6 +462,11 @@ export function PosView() {
       setCart([]);
       setShowCheckout(false);
       setRedeemFreeSoftDrink(false);
+      setMomoPromptStage('IDLE');
+      setMomoTransactionToken('');
+      setMomoInstructions('');
+      setMomoRedirectUrl('');
+      setPaymentReference('');
       toast.success(
         `Sale ${receiptData.saleNumber} completed (${formatZMW(receiptTotal)}). Kitchen ticket dispatched.`,
         'Sale Completed'
@@ -883,7 +943,14 @@ export function PosView() {
                   return (
                     <button
                       key={m.id}
-                      onClick={() => setPaymentMethod(m.id as any)}
+                      onClick={() => {
+                        setPaymentMethod(m.id as any);
+                        setMomoPromptStage('IDLE');
+                        setMomoTransactionToken('');
+                        setMomoInstructions('');
+                        setMomoRedirectUrl('');
+                        setPaymentReference('');
+                      }}
                       className={`p-3 rounded-xl border flex items-center gap-2.5 text-sm font-semibold transition ${
                         isSel
                           ? 'bg-amber-500 text-slate-950 border-amber-500 shadow-md shadow-amber-500/20 font-bold'
@@ -898,7 +965,7 @@ export function PosView() {
               </div>
             </div>
 
-            {/* Mobile Money Push & Subscriber PIN Prompt */}
+            {/* DPO Mobile Money Push */}
             {(paymentMethod === PaymentMethod.AIRTEL_MONEY ||
               paymentMethod === PaymentMethod.MTN_MOMO) && (
               <div className="p-4 bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-3.5">
@@ -910,7 +977,7 @@ export function PosView() {
                     </span>
                   </div>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-500/20 font-bold uppercase font-mono">
-                    Direct API Push
+                    DPO Pay
                   </span>
                 </div>
 
@@ -924,7 +991,7 @@ export function PosView() {
                       onChange={(e) => setMomoPhone(e.target.value)}
                       className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus:outline-none focus:border-amber-500 font-mono"
                     />
-                    {momoPromptStage === 'IDLE' && (
+                    {(momoPromptStage === 'IDLE' || momoPromptStage === 'FAILED') && (
                       <button
                         type="button"
                         onClick={handleInitiateMoMoPush}
@@ -936,7 +1003,7 @@ export function PosView() {
                   </div>
                 </div>
 
-                {/* Live USSD Push / PIN Authorization Box */}
+                {/* DPO payment state — the wallet PIN must never be entered into this POS. */}
                 {momoPromptStage === 'PUSHING' && (
                   <div className="p-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 rounded-xl flex items-center gap-3 text-xs text-amber-700 dark:text-amber-300 animate-pulse">
                     <div className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
@@ -944,29 +1011,30 @@ export function PosView() {
                   </div>
                 )}
 
-                {(momoPromptStage === 'WAITING_PIN' || momoPromptStage === 'APPROVED') && (
+                {momoPromptStage === 'WAITING' && (
                   <div className="p-3.5 bg-white dark:bg-slate-900 border border-amber-500/40 rounded-xl space-y-3 animate-in fade-in shadow-sm">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-                        <KeyRound className="w-3.5 h-3.5" />
-                        Enter Mobile Money PIN (4 Digits)
+                        <div className="w-3.5 h-3.5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                        Awaiting customer approval
                       </span>
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">Secure Authorization</span>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">DPO verification active</span>
                     </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-snug">
+                      A payment request was sent to <strong className="text-slate-900 dark:text-white">{momoPhone}</strong>. The customer must enter their PIN on their own phone; the POS checks DPO for confirmation automatically.
+                    </p>
+                    {momoInstructions && <p className="text-[11px] text-slate-600 dark:text-slate-400 whitespace-pre-line">{momoInstructions}</p>}
+                    {momoRedirectUrl && momoRedirectUrl.startsWith('https://') && (
+                      <a href={momoRedirectUrl} target="_blank" rel="noopener noreferrer" className="inline-flex text-[11px] font-bold text-amber-600 dark:text-amber-400 hover:underline">
+                        Open required operator payment page
+                      </a>
+                    )}
+                  </div>
+                )}
 
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="password"
-                        maxLength={4}
-                        placeholder="••••"
-                        value={momoPin}
-                        onChange={(e) => setMomoPin(e.target.value)}
-                        className="w-32 text-center text-xl font-mono tracking-widest bg-slate-50 dark:bg-slate-950 border border-amber-500/50 rounded-xl py-2 focus:outline-none text-emerald-600 dark:text-emerald-400 font-bold"
-                      />
-                      <div className="text-[11px] text-slate-600 dark:text-slate-400 leading-snug">
-                        Subscriber prompt active on <strong className="text-slate-900 dark:text-white">{momoPhone}</strong>. Enter secret wallet PIN to approve {formatZMW(cartSubtotal)}.
-                      </div>
-                    </div>
+                {momoPromptStage === 'APPROVED' && (
+                  <div className="p-3 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-300 dark:border-emerald-500/30 rounded-xl text-xs text-emerald-700 dark:text-emerald-300 font-semibold">
+                    DPO has confirmed this payment. Confirm the sale to print the receipt.
                   </div>
                 )}
 

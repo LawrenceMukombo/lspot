@@ -1,10 +1,10 @@
 import { Router, Response } from 'express';
 import { posService } from '../services/pos.service.js';
 import { authService } from '../services/auth.service.js';
-import { authenticate, RequestWithUser, requireRole } from '../middleware/auth.js';
+import { authenticate, RequestWithUser, requireRole, rateLimitAuth } from '../middleware/auth.js';
 import { auditMiddleware } from '../middleware/audit.js';
-import { PosCheckoutSchema } from '@lspot/validation';
-import { UserRole } from '@lspot/shared';
+import { PosCheckoutSchema, InitiateMoMoPushSchema } from '@lspot/validation';
+import { PaymentMethod, UserRole } from '@lspot/shared';
 
 export const posRouter = Router();
 
@@ -40,6 +40,23 @@ posRouter.post(
         parsed.data
       );
       return res.status(201).json({ success: true, message: 'Sale completed successfully', data: sale });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+posRouter.get(
+  '/momo-status/:transactionToken',
+  authenticate,
+  requireRole(UserRole.OWNER, UserRole.MANAGER, UserRole.CASHIER),
+  async (req: RequestWithUser, res: Response) => {
+    try {
+      const result = await posService.getMobileMoneyPaymentStatus(
+        String(req.params.transactionToken),
+        req.user!.tenantId
+      );
+      return res.json({ success: true, data: result });
     } catch (err: any) {
       return res.status(400).json({ success: false, message: err.message });
     }
@@ -121,9 +138,19 @@ posRouter.post(
   '/momo-initiate',
   authenticate,
   requireRole(UserRole.OWNER, UserRole.MANAGER, UserRole.CASHIER),
+  rateLimitAuth(15, 5 * 60 * 1000),
+  auditMiddleware('INITIATE_MOMO_PUSH', 'MobileMoneyPayment'),
   async (req: RequestWithUser, res: Response) => {
     try {
-      const result = await posService.initiateMobileMoneyPush(req.user!.tenantId, req.user!.id, req.body);
+      const parsed = InitiateMoMoPushSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          success: false,
+          message: parsed.error.issues[0]?.message || 'Invalid mobile money payment request',
+          errors: parsed.error.issues
+        });
+      }
+      const result = await posService.initiateMobileMoneyPush(req.user!.tenantId, req.user!.id, parsed.data);
       return res.json({ success: true, message: result.message, data: result });
     } catch (err: any) {
       return res.status(400).json({ success: false, message: err.message });

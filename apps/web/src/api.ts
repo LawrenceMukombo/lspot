@@ -327,9 +327,10 @@ export async function apiRequest<T = any>(
     endpoint.startsWith('/auth/login') ||
     endpoint.startsWith('/auth/pin-login') ||
     endpoint.startsWith('/auth/biometric-login');
+  const isLivePaymentCheck = endpoint.startsWith('/pos/momo-status/');
 
-  // Fast offline path for GET requests
-  if (method === 'GET' && typeof navigator !== 'undefined' && !navigator.onLine) {
+  // Fast offline path for GET requests (excluding live payment verification endpoints)
+  if (method === 'GET' && !isLivePaymentCheck && typeof navigator !== 'undefined' && !navigator.onLine) {
     const cached = readGetCache(endpoint);
     if (cached.found) {
       return cached.data as T;
@@ -349,7 +350,7 @@ export async function apiRequest<T = any>(
     clearTimeout(timeoutId);
   } catch (networkErr: any) {
     // 1. If GET request failed due to network/offline, return cached response seamlessly
-    if (method === 'GET') {
+    if (method === 'GET' && !isLivePaymentCheck) {
       const cached = readGetCache(endpoint);
       if (cached.found) {
         return cached.data as T;
@@ -421,7 +422,7 @@ export async function apiRequest<T = any>(
   }
 
   // Save successful GET responses into local offline cache
-  if (method === 'GET') {
+  if (method === 'GET' && !isLivePaymentCheck) {
     saveGetCache(endpoint, json.data);
   }
 

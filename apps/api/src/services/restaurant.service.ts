@@ -1,6 +1,16 @@
 import { prisma } from '@lspot/database';
 
 export interface TenantIntegrationConfig {
+  dpoConfig: {
+    enabled: boolean;
+    country: string;
+    currency: string;
+    airtelEnabled: boolean;
+    airtelMno: string;
+    mtnEnabled: boolean;
+    mtnMno: string;
+    companyTokenConfigured: boolean;
+  };
   momoConfig: {
     airtelEnabled: boolean;
     airtelEnvironment: 'sandbox' | 'production';
@@ -143,6 +153,16 @@ export class RestaurantService {
     const stored = (latestEvent?.details as any) || {};
 
     return {
+      dpoConfig: {
+        enabled: stored.dpoConfig?.enabled ?? true,
+        country: stored.dpoConfig?.country || process.env.DPO_MNO_COUNTRY || 'Zambia',
+        currency: stored.dpoConfig?.currency || process.env.DPO_CURRENCY || 'ZMW',
+        airtelEnabled: stored.dpoConfig?.airtelEnabled ?? true,
+        airtelMno: stored.dpoConfig?.airtelMno || process.env.DPO_AIRTEL_MNO || 'Airtel',
+        mtnEnabled: stored.dpoConfig?.mtnEnabled ?? true,
+        mtnMno: stored.dpoConfig?.mtnMno || process.env.DPO_MTN_MNO || 'MTN',
+        companyTokenConfigured: Boolean(process.env.DPO_COMPANY_TOKEN)
+      },
       momoConfig: {
         airtelEnabled: stored.momoConfig?.airtelEnabled ?? true,
         airtelEnvironment: stored.momoConfig?.airtelEnvironment || (process.env.AIRTEL_ENV as any) || 'sandbox',
@@ -199,6 +219,20 @@ export class RestaurantService {
 
   async updateIntegrationsConfig(tenantId: string, userId: string | undefined, payload: Partial<TenantIntegrationConfig>) {
     const current = await this.getIntegrationsConfig(tenantId);
+
+    const sanitizedDpo = payload.dpoConfig
+      ? {
+          ...current.dpoConfig,
+          enabled: Boolean(payload.dpoConfig.enabled ?? current.dpoConfig.enabled),
+          country: payload.dpoConfig.country || current.dpoConfig.country,
+          currency: payload.dpoConfig.currency || current.dpoConfig.currency,
+          airtelEnabled: Boolean(payload.dpoConfig.airtelEnabled ?? current.dpoConfig.airtelEnabled),
+          airtelMno: payload.dpoConfig.airtelMno || current.dpoConfig.airtelMno,
+          mtnEnabled: Boolean(payload.dpoConfig.mtnEnabled ?? current.dpoConfig.mtnEnabled),
+          mtnMno: payload.dpoConfig.mtnMno || current.dpoConfig.mtnMno,
+          companyTokenConfigured: current.dpoConfig.companyTokenConfigured
+        }
+      : current.dpoConfig;
 
     const sanitizedMomo = payload.momoConfig
       ? {
@@ -258,6 +292,7 @@ export class RestaurantService {
       : current.gatewaysConfig;
 
     const merged: TenantIntegrationConfig = {
+      dpoConfig: sanitizedDpo,
       momoConfig: sanitizedMomo,
       zraConfig: sanitizedZra,
       gatewaysConfig: sanitizedGateways
@@ -285,8 +320,18 @@ export class RestaurantService {
     return merged;
   }
 
-  async testIntegrationConnection(tenantId: string, target: 'momo' | 'zra' | 'gateways') {
+  async testIntegrationConnection(tenantId: string, target: 'dpo' | 'momo' | 'zra' | 'gateways') {
     const config = await this.getIntegrationsConfig(tenantId);
+
+    if (target === 'dpo') {
+      if (!config.dpoConfig.companyTokenConfigured) {
+        throw new Error('DPO Company Token is not configured on the API server. Add DPO_COMPANY_TOKEN to the server environment first.');
+      }
+      const networks = [config.dpoConfig.airtelEnabled ? `Airtel (${config.dpoConfig.airtelMno})` : null, config.dpoConfig.mtnEnabled ? `MTN (${config.dpoConfig.mtnMno})` : null]
+        .filter(Boolean)
+        .join(', ');
+      return { target: 'dpo', reachable: true, message: `DPO configuration is ready for ${config.dpoConfig.country}: ${networks}. A live payment is not created by this configuration check.` };
+    }
 
     if (target === 'momo') {
       const airtelMode = config.momoConfig.airtelEnvironment.toUpperCase();

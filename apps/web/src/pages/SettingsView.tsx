@@ -224,6 +224,12 @@ export function SettingsView() {
   const [momoSavedMsg, setMomoSavedMsg] = useState(false);
   const [isTestingMomo, setIsTestingMomo] = useState(false);
   const [testMomoResult, setTestMomoResult] = useState<string | null>(null);
+  const [dpoConfig, setDpoConfig] = useState({
+    enabled: true, country: 'Zambia', currency: 'ZMW', airtelEnabled: true, airtelMno: 'Airtel', mtnEnabled: true, mtnMno: 'MTN', companyTokenConfigured: false
+  });
+  const [dpoSavedMsg, setDpoSavedMsg] = useState(false);
+  const [isTestingDpo, setIsTestingDpo] = useState(false);
+  const [testDpoResult, setTestDpoResult] = useState<string | null>(null);
 
   useEffect(() => {
     loadCategories();
@@ -256,6 +262,7 @@ export function SettingsView() {
 
       const integ = await apiRequest('/restaurant/integrations').catch(() => null);
       if (integ) {
+        if (integ.dpoConfig) setDpoConfig((prev: any) => ({ ...prev, ...integ.dpoConfig }));
         if (integ.momoConfig) {
           setMomoConfig((prev: any) => ({ ...prev, ...integ.momoConfig }));
         }
@@ -1250,11 +1257,51 @@ export function SettingsView() {
               <h3 className="text-lg font-bold text-slate-900 dark:text-white">Mobile Money Payment Gateways (Zambia)</h3>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Configure Airtel Money OpenAPI and MTN MoMo API credentials for automated USSD push collection, customer PIN prompts, and instant webhook payment settlements.
+              Configure DPO Pay mobile-money routing for Airtel Money and MTN MoMo. Customers approve payments and enter their PIN only on their own phone.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="p-5 bg-amber-50/70 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 rounded-2xl space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h4 className="font-bold text-sm text-slate-900 dark:text-white">DPO Pay by Network</h4>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">One gateway for the mobile-money routes enabled on your DPO merchant account.</p>
+              </div>
+              <span className={`text-[10px] px-2 py-1 rounded-full font-bold ${dpoConfig.companyTokenConfigured ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300' : 'bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300'}`}>
+                {dpoConfig.companyTokenConfigured ? 'Company token configured' : 'Company token required on server'}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Country
+                <input value={dpoConfig.country} onChange={(e) => setDpoConfig({ ...dpoConfig, country: e.target.value })} className={`${inputCls} mt-1`} />
+              </label>
+              <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Currency
+                <input value={dpoConfig.currency} onChange={(e) => setDpoConfig({ ...dpoConfig, currency: e.target.value.toUpperCase() })} maxLength={3} className={`${inputCls} mt-1 font-mono`} />
+              </label>
+              <label className="text-xs font-medium text-slate-700 dark:text-slate-300">Airtel MNO value
+                <input value={dpoConfig.airtelMno} disabled={!dpoConfig.airtelEnabled} onChange={(e) => setDpoConfig({ ...dpoConfig, airtelMno: e.target.value })} className={`${inputCls} mt-1`} />
+              </label>
+              <label className="text-xs font-medium text-slate-700 dark:text-slate-300">MTN MNO value
+                <input value={dpoConfig.mtnMno} disabled={!dpoConfig.mtnEnabled} onChange={(e) => setDpoConfig({ ...dpoConfig, mtnMno: e.target.value })} className={`${inputCls} mt-1`} />
+              </label>
+            </div>
+            <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-700 dark:text-slate-300">
+              <label className="flex items-center gap-2"><input type="checkbox" checked={dpoConfig.enabled} onChange={(e) => setDpoConfig({ ...dpoConfig, enabled: e.target.checked })} /> Enable DPO collection</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={dpoConfig.airtelEnabled} onChange={(e) => setDpoConfig({ ...dpoConfig, airtelEnabled: e.target.checked })} /> Accept Airtel Money</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={dpoConfig.mtnEnabled} onChange={(e) => setDpoConfig({ ...dpoConfig, mtnEnabled: e.target.checked })} /> Accept MTN MoMo</label>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <button type="button" disabled={isTestingDpo} onClick={async () => { setIsTestingDpo(true); setTestDpoResult(null); try { const res = await apiRequest('/restaurant/integrations/test', { method: 'POST', body: JSON.stringify({ target: 'dpo' }) }); setTestDpoResult(res?.message || 'DPO configuration is ready.'); } catch (err: any) { setTestDpoResult(err?.message || 'DPO configuration could not be checked.'); } finally { setIsTestingDpo(false); } }} className="px-4 py-2 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-500/40 rounded-xl text-xs font-bold text-amber-700 dark:text-amber-300">{isTestingDpo ? 'Checking...' : 'Check DPO Setup'}</button>
+              <button type="button" onClick={async () => { try { await apiRequest('/restaurant/integrations', { method: 'PUT', body: JSON.stringify({ dpoConfig }) }); setDpoSavedMsg(true); setTimeout(() => setDpoSavedMsg(false), 3000); } catch (err: any) { toast.critical(err?.message || 'Could not save DPO settings.', 'DPO Settings'); } }} className={btn.primary}><Save className="w-4 h-4" /><span>Save DPO Settings</span></button>
+              {dpoSavedMsg && <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">DPO settings saved.</span>}
+              {testDpoResult && <span className="text-xs text-slate-600 dark:text-slate-300">{testDpoResult}</span>}
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">For security, the DPO company token remains in the API server environment as <code>DPO_COMPANY_TOKEN</code>; it is never displayed or stored in the browser.</p>
+          </div>
+
+          <details className="group rounded-2xl border border-slate-200 dark:border-slate-800 p-4">
+            <summary className="cursor-pointer text-xs font-semibold text-slate-600 dark:text-slate-300">Legacy direct Airtel/MTN API settings — not used while DPO Pay is enabled</summary>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-5">
             {/* Airtel Money Zambia Configuration */}
             <div className="p-5 bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-4">
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
@@ -1399,7 +1446,8 @@ export function SettingsView() {
                 />
               </div>
             </div>
-          </div>
+            </div>
+          </details>
 
           {/* Test & Save Action Bar */}
           <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
