@@ -155,3 +155,32 @@ test('Test 10: DPO Mobile Money validation and anti-replay token protection', ()
   });
   assert.strictEqual(maliciousTokenCheckout.success, false, 'XML/special characters in dpoTransactionToken must be rejected');
 });
+
+test('Test 11: Biometrics must be explicitly registered before authentication succeeds', () => {
+  const registry = new Map<string, { credentialId: string; userId: string; type: 'thumbprint' | 'face' }>();
+
+  function verifyBiometricLogin(credentialId: string, type: 'thumbprint' | 'face') {
+    const rec = registry.get(credentialId);
+    if (!rec || rec.type !== type) {
+      throw new Error(`No registered ${type === 'face' ? 'Face Recognition' : 'Thumbprint'} found.`);
+    }
+    return rec;
+  }
+
+  // Attempting to login before registration must throw
+  assert.throws(
+    () => verifyBiometricLogin('BIO-THUMBPRINT-UNREGISTERED', 'thumbprint'),
+    /No registered Thumbprint found/,
+    'Unregistered thumbprint must be rejected'
+  );
+
+  // Registering first allows subsequent login
+  registry.set('BIO-THUMBPRINT-001', {
+    credentialId: 'BIO-THUMBPRINT-001',
+    userId: 'user-manager-1',
+    type: 'thumbprint'
+  });
+
+  const verified = verifyBiometricLogin('BIO-THUMBPRINT-001', 'thumbprint');
+  assert.strictEqual(verified.userId, 'user-manager-1');
+});

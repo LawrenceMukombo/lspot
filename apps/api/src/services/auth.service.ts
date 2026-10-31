@@ -573,10 +573,13 @@ export class AuthService {
     await this.ensureBootstrapUsers();
     const targetTenantId = data.tenantId || DEFAULT_TENANT_ID;
     const registry = await this.getBiometricRegistry(targetTenantId);
+    const bioLabel = data.type === 'face' ? 'Face Recognition' : 'Thumbprint';
 
     let matchedRecord: any = null;
     if (data.credentialId) {
-      matchedRecord = registry.find((r: any) => r.credentialId === data.credentialId);
+      matchedRecord = registry.find(
+        (r: any) => r.credentialId === data.credentialId && (!data.type || r.type === data.type)
+      );
     }
     if (!matchedRecord && data.userId) {
       matchedRecord = registry.find(
@@ -584,20 +587,23 @@ export class AuthService {
       );
     }
 
-    const lookupUserId = matchedRecord?.userId || data.userId;
-    const lookupUsername = matchedRecord?.username || data.username;
+    if (!matchedRecord) {
+      throw new Error(
+        `No registered ${bioLabel} found. Biometrics must be registered in Staff & User Management before use.`
+      );
+    }
 
     let user = null;
-    if (lookupUserId) {
+    if (matchedRecord.userId) {
       user = await prisma.user.findFirst({
-        where: { id: lookupUserId, isActive: true },
+        where: { id: matchedRecord.userId, isActive: true },
         include: { tenant: true }
       });
     }
-    if (!user && lookupUsername) {
+    if (!user && matchedRecord.username) {
       user = await prisma.user.findFirst({
         where: {
-          username: { equals: String(lookupUsername).trim(), mode: 'insensitive' },
+          username: { equals: String(matchedRecord.username).trim(), mode: 'insensitive' },
           isActive: true
         },
         include: { tenant: true }
@@ -626,7 +632,7 @@ export class AuthService {
 
     return {
       token,
-      biometricType: data.type || matchedRecord?.type || 'thumbprint',
+      biometricType: matchedRecord.type || data.type || 'thumbprint',
       user: {
         id: user.id,
         username: user.username,
@@ -635,6 +641,251 @@ export class AuthService {
         tenantId: user.tenantId,
         tenantName: user.tenant.name
       }
+    };
+  }
+
+  async requestPasswordReset(usernameOrEmail: string, tenantId: string = DEFAULT_TENANT_ID) {
+    await this.ensureBootstrapUsers();
+    const cleaned = String(usernameOrEmail || '').trim();
+    if (!cleaned) {
+      throw new Error('Please enter your username or registered email address.');
+    }
+
+    const user = await prisma.user.findFirst({
+      where: {
+        tenantId,
+        isActive: true,
+        OR: [
+          { username: { equals: cleaned, mode: 'insensitive' } },
+          { email: { equals: cleaned, mode: 'insensitive' } }
+        ]
+      }
+    });
+
+    if (!user) {
+      throw new Error('No active staff account found matching that username or email.');
+    }
+
+    // Generate 6-digit recovery code valid for 15 minutes
+    const recoveryCode = String(Math.floor(100000 + Math.random() * 900000));
+    const expiresAt = Date.now() + 15 * 60 * 1000;
+    const key = `pwd_reset_otp_${user.id}`;
+
+    await prisma.syncCommand.upsert({
+      where: { idempotencyKey: key },
+      update: {
+        payload: {
+          userId: user.id,
+          username: user.username,
+          code: recoveryCode,
+          expiresAt,
+          used: false,
+          requestedAt: new Date().toISOString()
+        } as any,
+        processedAt: new Date()
+      },
+      create: {
+        deviceId: 'password-recovery',
+        idempotencyKey: key,
+        commandType: 'PASSWORD_RESET_OTP',
+        payload: {
+          userId: user.id,
+          username: user.username,
+          code: recoveryCode,
+          expiresAt,
+          used: false,
+          requestedAt: new Date().toISOString()
+        } as any,
+        status: 'PROCESSED',
+        clientTime: new Date()
+      }
+    });
+
+    await prisma.auditEvent.create({
+      data: {
+        tenantId: user.tenantId,
+        userId: user.id,
+        action: 'PASSWORD_RESET_REQUESTED',
+        entityType: 'User',
+        entityId: user.id,
+        details: {
+          username: user.username,
+          expiresAt: new Date(expiresAt).toISOString()
+        }
+      }
+    });
+
+    const maskedEmail = user.email
+      ? user.email.replace(/^(..)(.*)(@.*)$/, (_m, a, b, c) => `${a}${'*'.repeat(Math.max(2, b.length))}${c}`)
+      : null;
+
+    return {
+      username: user.username,
+      fullName: user.fullName,
+      maskedEmail,
+      recoveryCode,
+      expiresInMinutes: 15
+    };
+  }
+
+  async recoverOrResetPassword(data: {
+    username: string;
+    newPassword: string;
+    verificationMethod: 'STAFF_PIN' | 'SUPERVISOR_PIN' | 'RECOVERY_CODE';
+    pinOrCode: string;
+    tenantId?: string;
+  }) {
+    await this.ensureBootstrapUsers();
+    const targetTenantId = data.tenantId || DEFAULT_TENANT_ID;
+    const cleanedUsername = String(data.username || '').trim();
+    const cleanedCode = String(data.pinOrCode || '').trim();
+    const newPassword = String(data.newPassword || '');
+
+    if (!cleanedUsername) {
+      throw new Error('Username or email is required.');
+    }
+    if (!cleanedCode) {
+      throw new Error('Verification PIN or Recovery Code is required.');
+    }
+    if (newPassword.length < 6) {
+      throw new Error('New password must be at least 6 characters long.');
+    }
+
+    const user = await prisma.user.findFirst({
+      where: {
+        tenantId: targetTenantId,
+        isActive: true,
+        OR: [
+          { username: { equals: cleanedUsername, mode: 'insensitive' } },
+          { email: { equals: cleanedUsername, mode: 'insensitive' } }
+        ]
+      }
+    });
+
+    if (!user) {
+      throw new Error('No active staff account found for that username or email.');
+    }
+
+    let verifiedByDetail = '';
+
+    if (data.verificationMethod === 'STAFF_PIN') {
+      const isPinValid = await matchesPin(cleanedCode, user.supervisorPin);
+      if (!isPinValid) {
+        throw new Error('Invalid personal Staff PIN. Check your 4–6 digit PIN or use Supervisor Override.');
+      }
+      verifiedByDetail = 'Personal Staff PIN';
+    } else if (data.verificationMethod === 'SUPERVISOR_PIN') {
+      const override = await this.verifySupervisorOverride(user.tenantId, cleanedCode);
+      if (!override.valid || !override.supervisor) {
+        throw new Error(override.message || 'Invalid Supervisor / Manager / Owner Override PIN.');
+      }
+      // Prevent a Manager from resetting Super Admin or Owner password unless they are Owner/Super Admin
+      if (
+        (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.OWNER) &&
+        override.supervisor.role === UserRole.MANAGER
+      ) {
+        throw new Error('A Manager PIN cannot reset an Owner or Super Admin password. Use Owner/Super Admin PIN.');
+      }
+      verifiedByDetail = `Supervisor Override (${override.supervisor.fullName})`;
+    } else if (data.verificationMethod === 'RECOVERY_CODE') {
+      const key = `pwd_reset_otp_${user.id}`;
+      const otpRecord = await prisma.syncCommand.findUnique({
+        where: { idempotencyKey: key }
+      });
+      const payload = (otpRecord?.payload || {}) as any;
+      if (!otpRecord || !payload.code || payload.used) {
+        throw new Error('No active recovery code found. Please request a new recovery code first.');
+      }
+      if (Number(payload.expiresAt || 0) < Date.now()) {
+        throw new Error('Recovery code has expired. Please request a new 6-digit recovery code.');
+      }
+      if (String(payload.code).trim() !== cleanedCode) {
+        throw new Error('Invalid 6-digit recovery code. Please check the code and try again.');
+      }
+      await prisma.syncCommand.update({
+        where: { idempotencyKey: key },
+        data: {
+          payload: { ...payload, used: true, usedAt: new Date().toISOString() } as any,
+          processedAt: new Date()
+        }
+      });
+      verifiedByDetail = '6-Digit Recovery Code (OTP)';
+    } else {
+      throw new Error('Unsupported password recovery verification method.');
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash }
+    });
+
+    await prisma.auditEvent.create({
+      data: {
+        tenantId: user.tenantId,
+        userId: user.id,
+        action: 'PASSWORD_RESET_COMPLETED',
+        entityType: 'User',
+        entityId: user.id,
+        details: {
+          username: user.username,
+          verificationMethod: data.verificationMethod,
+          verifiedBy: verifiedByDetail
+        }
+      }
+    });
+
+    return {
+      username: user.username,
+      fullName: user.fullName,
+      role: user.role,
+      verifiedBy: verifiedByDetail
+    };
+  }
+
+  async changePassword(userId: string, currentPasswordOrPin: string, newPassword: string) {
+    await this.ensureBootstrapUsers();
+    if (!newPassword || newPassword.length < 6) {
+      throw new Error('New password must be at least 6 characters long.');
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+    if (!user || !user.isActive) {
+      throw new Error('Active user account not found.');
+    }
+
+    const cleanedCurrent = String(currentPasswordOrPin || '').trim();
+    const matchesCurrentPassword = await bcrypt.compare(cleanedCurrent, user.passwordHash);
+    const matchesCurrentPin = await matchesPin(cleanedCurrent, user.supervisorPin);
+
+    if (!matchesCurrentPassword && !matchesCurrentPin) {
+      throw new Error('Current password or personal Staff PIN is incorrect.');
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash }
+    });
+
+    await prisma.auditEvent.create({
+      data: {
+        tenantId: user.tenantId,
+        userId: user.id,
+        action: 'PASSWORD_CHANGED',
+        entityType: 'User',
+        entityId: user.id,
+        details: {
+          username: user.username,
+          verifiedWith: matchesCurrentPassword ? 'Current Password' : 'Staff PIN'
+        }
+      }
+    });
+
+    return {
+      username: user.username,
+      fullName: user.fullName
     };
   }
 }

@@ -1,5 +1,16 @@
 import React, { useState, useEffect, Suspense } from 'react';
-import { UtensilsCrossed, Lock, KeyRound, UserCheck, Fingerprint, ScanFace } from 'lucide-react';
+import {
+  UtensilsCrossed,
+  Lock,
+  KeyRound,
+  UserCheck,
+  Fingerprint,
+  ScanFace,
+  ShieldAlert,
+  RefreshCw,
+  CheckCircle2,
+  X
+} from 'lucide-react';
 import { Navbar } from './components/Navbar.js';
 import { Sidebar, NavTab } from './components/Sidebar.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
@@ -41,6 +52,19 @@ export function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [biometricModalType, setBiometricModalType] = useState<'thumbprint' | 'face' | null>(null);
+
+  // Password Recovery & Reset Modal State
+  const [showRecoveryModal, setShowRecoveryModal] = useState(false);
+  const [recoveryUsername, setRecoveryUsername] = useState('');
+  const [recoveryMethod, setRecoveryMethod] = useState<'STAFF_PIN' | 'SUPERVISOR_PIN' | 'RECOVERY_CODE'>('STAFF_PIN');
+  const [recoveryPinOrCode, setRecoveryPinOrCode] = useState('');
+  const [recoveryNewPassword, setRecoveryNewPassword] = useState('');
+  const [recoveryConfirmPassword, setRecoveryConfirmPassword] = useState('');
+  const [recoveryGeneratedCode, setRecoveryGeneratedCode] = useState<string | null>(null);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [recoverySuccess, setRecoverySuccess] = useState<string | null>(null);
+  const [isRecoverySubmitting, setIsRecoverySubmitting] = useState(false);
+  const [isRequestingCode, setIsRequestingCode] = useState(false);
 
   useEffect(() => {
     syncBiometricsFromServer().catch(() => {});
@@ -201,6 +225,116 @@ export function App() {
     setShowSplash(false);
   };
 
+  const handleOpenRecoveryModal = () => {
+    setRecoveryUsername(username.trim());
+    setRecoveryMethod('STAFF_PIN');
+    setRecoveryPinOrCode('');
+    setRecoveryNewPassword('');
+    setRecoveryConfirmPassword('');
+    setRecoveryGeneratedCode(null);
+    setRecoveryError(null);
+    setRecoverySuccess(null);
+    setShowRecoveryModal(true);
+  };
+
+  const handleRequestRecoveryCode = async () => {
+    if (!recoveryUsername.trim()) {
+      setRecoveryError('Please enter your Username or Email first.');
+      return;
+    }
+    setRecoveryError(null);
+    setIsRequestingCode(true);
+    try {
+      const res = await apiRequest<{
+        username: string;
+        fullName: string;
+        maskedEmail?: string;
+        recoveryCode: string;
+        expiresInMinutes: number;
+      }>('/auth/request-password-reset', {
+        method: 'POST',
+        body: JSON.stringify({ username: recoveryUsername.trim() })
+      });
+      if (res && res.recoveryCode) {
+        setRecoveryGeneratedCode(res.recoveryCode);
+        setRecoveryPinOrCode(res.recoveryCode);
+        toast.success(
+          `6-digit recovery code generated for @${res.username}`,
+          'Recovery Code Ready'
+        );
+      }
+    } catch (err: any) {
+      setRecoveryError(err?.message || 'Could not generate recovery code.');
+    } finally {
+      setIsRequestingCode(false);
+    }
+  };
+
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRecoveryError(null);
+    setRecoverySuccess(null);
+
+    if (!recoveryUsername.trim()) {
+      setRecoveryError('Please enter the staff username or email.');
+      return;
+    }
+    if (!recoveryPinOrCode.trim()) {
+      setRecoveryError(
+        recoveryMethod === 'STAFF_PIN'
+          ? 'Please enter your personal 4–6 digit Staff PIN.'
+          : recoveryMethod === 'SUPERVISOR_PIN'
+            ? 'Please enter the Supervisor / Manager / Owner Override PIN.'
+            : 'Please enter the 6-digit recovery code.'
+      );
+      return;
+    }
+    if (recoveryNewPassword.length < 6) {
+      setRecoveryError('New password must be at least 6 characters long.');
+      return;
+    }
+    if (recoveryNewPassword !== recoveryConfirmPassword) {
+      setRecoveryError('New password and confirmation do not match.');
+      return;
+    }
+
+    setIsRecoverySubmitting(true);
+    try {
+      const res = await apiRequest<{
+        username: string;
+        fullName: string;
+        verifiedBy: string;
+      }>('/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: recoveryUsername.trim(),
+          verificationMethod: recoveryMethod,
+          pinOrCode: recoveryPinOrCode.trim(),
+          newPassword: recoveryNewPassword
+        })
+      });
+
+      const resolvedUser = res?.username || recoveryUsername.trim();
+      setRecoverySuccess(
+        `Password for @${resolvedUser} has been reset (${res?.verifiedBy || 'Verified'}). You can now sign in with your new password.`
+      );
+      setUsername(resolvedUser);
+      setLoginMode('credentials');
+      setPassword('');
+      toast.success(
+        `Password reset for @${resolvedUser}. Please sign in with your new password.`,
+        'Password Reset Complete'
+      );
+      setTimeout(() => {
+        setShowRecoveryModal(false);
+      }, 1400);
+    } catch (err: any) {
+      setRecoveryError(err?.message || 'Password recovery failed. Please check your details.');
+    } finally {
+      setIsRecoverySubmitting(false);
+    }
+  };
+
   if (!isAuthenticated) {
     return (
       <ThemeProvider>
@@ -277,9 +411,18 @@ export function App() {
 
               {loginMode === 'credentials' ? (
                 <div>
-                  <label htmlFor="login-password" className="block text-xs font-semibold text-slate-400 mb-1">
-                    Password
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label htmlFor="login-password" className="block text-xs font-semibold text-slate-400">
+                      Password
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleOpenRecoveryModal}
+                      className="text-[11px] font-bold text-amber-400 hover:text-amber-300 underline underline-offset-2 transition"
+                    >
+                      Forgot Password? Recover / Reset
+                    </button>
+                  </div>
                   <input
                     id="login-password"
                     type="password"
@@ -317,12 +460,22 @@ export function App() {
                 <Lock className="w-4 h-4" />
                 <span>{isSubmitting ? 'Signing In...' : 'Sign In to Terminal'}</span>
               </button>
+
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={handleOpenRecoveryModal}
+                  className="text-xs font-semibold text-slate-400 hover:text-amber-400 transition"
+                >
+                  Need help signing in? <span className="text-amber-400 underline">Recover or Reset Password</span>
+                </button>
+              </div>
             </form>
 
-            {/* Biometric Sign-In Bar (Thumbprint & Face Recognition) */}
+            {/* Biometric Sign-In Bar (Thumbprint & Face Recognition — Requires Pre-Registration) */}
             <div className="pt-3 border-t border-slate-800/80 space-y-2.5">
               <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 text-center">
-                Or Instant Biometric Sign-In
+                Registered Biometric Sign-In
               </div>
               <div className="grid grid-cols-2 gap-2.5">
                 <button
@@ -348,8 +501,216 @@ export function App() {
                   <span>Face Unlock</span>
                 </button>
               </div>
+              <p className="text-[10px] text-slate-500 text-center">
+                Thumbprints & Face ID must be registered in Staff & User Management before use.
+              </p>
             </div>
           </div>
+
+          {/* Password Recovery & Reset Modal */}
+          {showRecoveryModal && (
+            <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
+              <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4 relative">
+                <button
+                  type="button"
+                  onClick={() => setShowRecoveryModal(false)}
+                  className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition"
+                  title="Close"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                    <KeyRound className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-extrabold text-white">Password Recovery & Reset</h3>
+                    <p className="text-xs text-slate-400">
+                      Recover your account and set a new password immediately
+                    </p>
+                  </div>
+                </div>
+
+                {/* Verification Method Tabs */}
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                    Select Verification Method
+                  </label>
+                  <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-950 border border-slate-800 rounded-xl text-[11px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRecoveryMethod('STAFF_PIN');
+                        setRecoveryError(null);
+                      }}
+                      className={`py-2 px-2 rounded-lg transition ${
+                        recoveryMethod === 'STAFF_PIN'
+                          ? 'bg-amber-500 text-slate-950'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      My Staff PIN
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRecoveryMethod('SUPERVISOR_PIN');
+                        setRecoveryError(null);
+                      }}
+                      className={`py-2 px-2 rounded-lg transition ${
+                        recoveryMethod === 'SUPERVISOR_PIN'
+                          ? 'bg-amber-500 text-slate-950'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      Manager PIN
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRecoveryMethod('RECOVERY_CODE');
+                        setRecoveryError(null);
+                      }}
+                      className={`py-2 px-2 rounded-lg transition ${
+                        recoveryMethod === 'RECOVERY_CODE'
+                          ? 'bg-amber-500 text-slate-950'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      6-Digit Code
+                    </button>
+                  </div>
+                </div>
+
+                {recoveryError && (
+                  <div className="p-3 rounded-xl bg-rose-950/70 border border-rose-800 text-xs text-rose-300 font-semibold flex items-start gap-2">
+                    <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
+                    <span>{recoveryError}</span>
+                  </div>
+                )}
+
+                {recoverySuccess && (
+                  <div className="p-3 rounded-xl bg-emerald-950/70 border border-emerald-800 text-xs text-emerald-300 font-semibold flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
+                    <span>{recoverySuccess}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleResetPasswordSubmit} className="space-y-3.5">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">
+                      Staff Username or Email
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={recoveryUsername}
+                      onChange={(e) => setRecoveryUsername(e.target.value)}
+                      placeholder="e.g., manager, owner, superadmin"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  {recoveryMethod === 'RECOVERY_CODE' && (
+                    <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-slate-300 font-medium">
+                          Request a 15-minute 6-digit recovery code:
+                        </span>
+                        <button
+                          type="button"
+                          disabled={isRequestingCode}
+                          onClick={handleRequestRecoveryCode}
+                          className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-bold flex items-center gap-1.5 transition"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${isRequestingCode ? 'animate-spin' : ''}`} />
+                          <span>{isRequestingCode ? 'Generating...' : 'Get Code'}</span>
+                        </button>
+                      </div>
+                      {recoveryGeneratedCode && (
+                        <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-center">
+                          <span className="text-[11px] text-slate-400 block">
+                            Terminal Recovery Code (valid 15 mins):
+                          </span>
+                          <span className="font-mono text-base font-extrabold tracking-widest text-amber-400">
+                            {recoveryGeneratedCode}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">
+                      {recoveryMethod === 'STAFF_PIN'
+                        ? 'Your Personal 4–6 Digit Staff PIN'
+                        : recoveryMethod === 'SUPERVISOR_PIN'
+                          ? 'Supervisor / Manager / Owner Override PIN'
+                          : '6-Digit Recovery Code'}
+                    </label>
+                    <input
+                      type={recoveryMethod === 'RECOVERY_CODE' ? 'text' : 'password'}
+                      required
+                      maxLength={6}
+                      value={recoveryPinOrCode}
+                      onChange={(e) => setRecoveryPinOrCode(e.target.value)}
+                      placeholder={recoveryMethod === 'RECOVERY_CODE' ? 'Enter 6-digit code' : '••••'}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-center font-mono text-base tracking-widest text-amber-400 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                        New Password
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        minLength={6}
+                        value={recoveryNewPassword}
+                        onChange={(e) => setRecoveryNewPassword(e.target.value)}
+                        placeholder="Min 6 characters"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">
+                        Confirm Password
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        minLength={6}
+                        value={recoveryConfirmPassword}
+                        onChange={(e) => setRecoveryConfirmPassword(e.target.value)}
+                        placeholder="Repeat password"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2.5 pt-2">
+                    <button
+                      type="submit"
+                      disabled={isRecoverySubmitting}
+                      className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-extrabold text-xs shadow-lg shadow-amber-500/20 transition"
+                    >
+                      {isRecoverySubmitting ? 'Resetting Password...' : 'Reset Password Now'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowRecoveryModal(false)}
+                      className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       </ThemeProvider>
     );

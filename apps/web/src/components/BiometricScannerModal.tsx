@@ -72,31 +72,47 @@ export function BiometricScannerModal({
     setProgress(0);
     setStage('READY');
     setCameraError(null);
+    let cancelled = false;
+
+    const bioLabel = biometricType === 'face' ? 'Face Recognition' : 'Thumbprint';
+    setStatusText(`Checking registered ${bioLabel} profiles...`);
 
     // Sync enrolled biometrics from server + local storage
     syncBiometricsFromServer().then((all) => {
+      if (cancelled) return;
       const filtered = all.filter((r) => {
         if (targetUser?.id && r.userId !== targetUser.id) return false;
         return r.type === biometricType;
       });
       setEnrolledProfiles(filtered);
+
+      if (mode === 'authenticate' && filtered.length === 0) {
+        stopCamera();
+        setStage('ERROR');
+        setStatusText(
+          `No registered ${bioLabel} found. Biometrics must be registered in Staff & User Management before use.`
+        );
+        return;
+      }
+
       if (filtered.length > 0) {
         setSelectedProfileId(filtered[0].credentialId);
       }
+
+      if (biometricType === 'face') {
+        setStatusText('Initializing front camera & facial landmark scanner...');
+        startFaceCamera();
+      } else {
+        setStatusText(
+          mode === 'register'
+            ? `Place and hold your thumb on the sensor below to enroll ${targetUser?.fullName || 'staff'}.`
+            : 'Place and hold your thumb on the scanner pad (or use hardware fingerprint sensor).'
+        );
+      }
     });
 
-    if (biometricType === 'face') {
-      setStatusText('Initializing front camera & facial landmark scanner...');
-      startFaceCamera();
-    } else {
-      setStatusText(
-        mode === 'register'
-          ? `Place and hold your thumb on the sensor below to enroll ${targetUser?.fullName || 'staff'}.`
-          : 'Place and hold your thumb on the scanner pad (or use hardware fingerprint sensor).'
-      );
-    }
-
     return () => {
+      cancelled = true;
       stopCamera();
       if (scanTimerRef.current) window.clearInterval(scanTimerRef.current);
     };
@@ -156,6 +172,13 @@ export function BiometricScannerModal({
 
   const handleThumbprintPressStart = () => {
     if (stage === 'VERIFIED') return;
+    if (mode === 'authenticate' && enrolledProfiles.length === 0) {
+      setStage('ERROR');
+      setStatusText(
+        'No registered Thumbprint found. Biometrics must be registered in Staff & User Management before use.'
+      );
+      return;
+    }
     setIsHoldingSensor(true);
     setStage('SCANNING');
     setStatusText('Scanning thumbprint ridge minutiae... Keep holding...');
@@ -558,9 +581,26 @@ export function BiometricScannerModal({
           </div>
         )}
 
+        {stage === 'ERROR' && (
+          <div
+            style={{
+              fontSize: '0.78rem',
+              color: '#fecdd3',
+              background: 'rgba(159, 18, 57, 0.28)',
+              border: '1px solid rgba(244, 63, 94, 0.45)',
+              borderRadius: '12px',
+              padding: '10px 12px',
+              marginBottom: '14px',
+              lineHeight: 1.45
+            }}
+          >
+            {statusText}
+          </div>
+        )}
+
         {/* Action Buttons */}
         <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-          {stage !== 'VERIFIED' && (
+          {stage !== 'VERIFIED' && !(mode === 'authenticate' && enrolledProfiles.length === 0) && (
             <button
               type="button"
               className="btn btn-primary"
@@ -581,12 +621,13 @@ export function BiometricScannerModal({
           <button
             type="button"
             className="btn btn-secondary"
+            style={{ flex: mode === 'authenticate' && enrolledProfiles.length === 0 ? 1 : undefined, justifyContent: 'center' }}
             onClick={() => {
               stopCamera();
               onClose();
             }}
           >
-            Cancel
+            {mode === 'authenticate' && enrolledProfiles.length === 0 ? 'Use Password or PIN Instead' : 'Cancel'}
           </button>
         </div>
       </div>

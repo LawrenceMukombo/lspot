@@ -131,11 +131,34 @@ export async function syncBiometricsFromServer(): Promise<BiometricCredentialRec
   try {
     const remoteList = await apiRequest<BiometricCredentialRecord[]>('/auth/biometrics');
     if (Array.isArray(remoteList)) {
+      const freshGlobalMap: Record<string, BiometricCredentialRecord> = {};
+      const byUserMap = new Map<string, BiometricCredentialRecord[]>();
+
       for (const item of remoteList) {
         if (item && item.credentialId && item.userId && item.type) {
-          saveBiometricRecordLocally(item);
+          const normId = normalizeId(item.credentialId);
+          const normalizedItem: BiometricCredentialRecord = {
+            ...item,
+            credentialId: normId
+          };
+          freshGlobalMap[normId] = normalizedItem;
+          const userArr = byUserMap.get(item.userId) || [];
+          userArr.push(normalizedItem);
+          byUserMap.set(item.userId, userArr);
         }
       }
+
+      // Clear any stale per-user biometric keys that were removed on server
+      const existingAll = getAllEnrolledBiometrics();
+      for (const oldRec of existingAll) {
+        if (!byUserMap.has(oldRec.userId)) {
+          localStorage.removeItem(`lspot_biometrics_${oldRec.userId}`);
+        }
+      }
+      for (const [uid, list] of byUserMap.entries()) {
+        localStorage.setItem(`lspot_biometrics_${uid}`, JSON.stringify(list));
+      }
+      localStorage.setItem(GLOBAL_BIOMETRICS_KEY, JSON.stringify(freshGlobalMap));
     }
   } catch {
     // Offline fallback uses existing localStorage records
@@ -336,38 +359,30 @@ export async function authenticateBiometric(
     return allRecords[0];
   }
 
-  // If no staff member has explicitly enrolled yet, check currently logged-in user or default manager/superadmin
-  const savedUserStr = localStorage.getItem('lspot_user_profile') || localStorage.getItem('lspot_user');
-  if (savedUserStr) {
-    try {
-      const u = JSON.parse(savedUserStr);
-      if (u && u.id && (!specificUserId || u.id === specificUserId)) {
-        return await registerBiometric(
-          u.id,
-          u.username || 'manager',
-          u.fullName || 'Mulenga Banda (Manager)',
-          expectedType || 'thumbprint',
-          { preferInteractiveSensor: true }
-        );
-      }
-    } catch {
-      // Ignore
-    }
-  }
-
-  // Auto-bind default Manager / Super Admin profile on first terminal biometric scan so it works out-of-the-box
-  return await registerBiometric(
-    '00000000-0000-0000-0000-000000000001',
-    'superadmin',
-    'Lawrence Mukombo (Super Admin)',
-    expectedType || 'thumbprint',
-    { preferInteractiveSensor: true }
+  const bioLabel = expectedType === 'face' ? 'Face Recognition' : 'Thumbprint';
+  throw new Error(
+    `No registered ${bioLabel} found on this terminal. Please sign in with your Username & Password or Staff PIN and register your ${bioLabel} in Staff & User Management first.`
   );
 }
 
 export async function loginWithBiometricSession(
   record: BiometricCredentialRecord
 ): Promise<{ token: string; user: any }> {
+  const enrolled = getAllEnrolledBiometrics();
+  const isRegistered = enrolled.some(
+    (r) =>
+      normalizeId(r.credentialId) === normalizeId(record.credentialId) &&
+      r.userId === record.userId &&
+      r.type === record.type
+  );
+
+  if (!isRegistered) {
+    const bioLabel = record.type === 'face' ? 'Face Recognition' : 'Thumbprint';
+    throw new Error(
+      `This ${bioLabel} is not registered. Please register it in Staff & User Management before signing in.`
+    );
+  }
+
   try {
     const res = await apiRequest<{ token: string; user: any }>('/auth/biometric-login', {
       method: 'POST',
@@ -381,8 +396,21 @@ export async function loginWithBiometricSession(
     if (res && res.token && res.user) {
       return res;
     }
-  } catch {
-    // Offline fallback: allow biometric sign-in offline using cached user / credential data
+  } catch (err: any) {
+    const msg = String(err?.message || '');
+    const isNetworkFailure =
+      msg.includes('Failed to fetch') ||
+      msg.includes('NetworkError') ||
+      msg.includes('Load failed') ||
+      msg.includes('status 502') ||
+      msg.includes('status 503') ||
+      msg.includes('status 504');
+
+    // If the server explicitly rejected the biometric (e.g. not registered on server), surface the error
+    if (!isNetworkFailure) {
+      throw err;
+    }
+    // Offline fallback only when genuinely offline and credential was previously registered & cached
   }
 
   const existingToken =

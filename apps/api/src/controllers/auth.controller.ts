@@ -226,10 +226,10 @@ authRouter.delete('/biometrics/:userId/:type', authenticate, async (req: Request
 authRouter.post('/biometric-login', async (req: RequestWithUser, res: Response) => {
   try {
     const { credentialId, userId, username, type } = (req.body as any) || {};
-    if (!credentialId && !userId && !username) {
+    if (!credentialId && !userId) {
       return res.status(400).json({
         success: false,
-        message: 'Biometric credential or user identifier is required.'
+        message: 'A registered biometric credential is required. Please register your biometric in Staff & User Management first.'
       });
     }
     const result = await authService.loginWithBiometric({ credentialId, userId, username, type });
@@ -246,3 +246,81 @@ authRouter.post('/biometric-login', async (req: RequestWithUser, res: Response) 
     });
   }
 });
+
+authRouter.post(
+  '/request-password-reset',
+  rateLimitAuth(8, 10 * 60 * 1000),
+  async (req: RequestWithUser, res: Response) => {
+    try {
+      const { username, email, tenantId } = (req.body as any) || {};
+      const result = await authService.requestPasswordReset(username || email || '', tenantId);
+      return res.json({
+        success: true,
+        message: `Recovery code generated for @${result.username}. Valid for ${result.expiresInMinutes} minutes.`,
+        data: result
+      });
+    } catch (err: any) {
+      return res.status(400).json({
+        success: false,
+        message: err.message || 'Failed to generate password recovery code.',
+        code: 'PASSWORD_RESET_REQUEST_FAILED'
+      });
+    }
+  }
+);
+
+authRouter.post(
+  '/reset-password',
+  rateLimitAuth(10, 10 * 60 * 1000),
+  async (req: RequestWithUser, res: Response) => {
+    try {
+      const { username, newPassword, verificationMethod, pinOrCode, tenantId } = (req.body as any) || {};
+      const result = await authService.recoverOrResetPassword({
+        username,
+        newPassword,
+        verificationMethod: verificationMethod || 'STAFF_PIN',
+        pinOrCode,
+        tenantId
+      });
+      return res.json({
+        success: true,
+        message: `Password for @${result.username} has been reset successfully (${result.verifiedBy}). You may now sign in.`,
+        data: result
+      });
+    } catch (err: any) {
+      return res.status(400).json({
+        success: false,
+        message: err.message || 'Password recovery / reset failed.',
+        code: 'PASSWORD_RESET_FAILED'
+      });
+    }
+  }
+);
+
+authRouter.post(
+  '/change-password',
+  authenticate,
+  rateLimitAuth(10, 10 * 60 * 1000),
+  auditMiddleware('CHANGE_PASSWORD', 'User'),
+  async (req: RequestWithUser, res: Response) => {
+    try {
+      const { currentPasswordOrPin, newPassword } = (req.body as any) || {};
+      const result = await authService.changePassword(
+        req.user!.id,
+        currentPasswordOrPin,
+        newPassword
+      );
+      return res.json({
+        success: true,
+        message: 'Your password has been updated successfully.',
+        data: result
+      });
+    } catch (err: any) {
+      return res.status(400).json({
+        success: false,
+        message: err.message || 'Password update failed.',
+        code: 'CHANGE_PASSWORD_FAILED'
+      });
+    }
+  }
+);
