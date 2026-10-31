@@ -9,6 +9,7 @@ import {
 } from '@lspot/shared';
 import { restaurantService } from './restaurant.service.js';
 import { kitchenService, getLusakaBusinessDateBounds } from './kitchen.service.js';
+import { LEGACY_DEMO_SALE_IDS } from './finance.service.js';
 
 export class PosService {
   async getCatalog(tenantId: string) {
@@ -450,7 +451,10 @@ export class PosService {
   }
 
   async getRecentSales(tenantId: string, limit = 100, startDate?: Date, endDate?: Date) {
-    const whereClause: any = { tenantId };
+    const whereClause: any = {
+      tenantId,
+      id: { notIn: LEGACY_DEMO_SALE_IDS }
+    };
     if (startDate || endDate) {
       whereClause.createdAt = {};
       if (startDate) whereClause.createdAt.gte = startDate;

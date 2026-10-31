@@ -2,25 +2,53 @@ import { prisma } from '@lspot/database';
 import { roundTo2Decimals, calculateGrossProfit, calculateOperatingProfit } from '@lspot/shared';
 import { getLusakaBusinessDateBounds } from './kitchen.service.js';
 
+export const LEGACY_DEMO_SALE_IDS = ['sale-001', 'sale-002', 'sale-003', 'sale-004', 'sale-005'];
+export const LEGACY_DEMO_EXPENSE_IDS = ['exp-rec-001', 'exp-rec-002', 'exp-rec-003'];
+export const LEGACY_DEMO_REGISTER_IDS = ['reg-today-001'];
+export const LEGACY_DEMO_KITCHEN_ITEM_IDS = ['kitem-001', 'kitem-002', 'kitem-003', 'kitem-004', 'kitem-005'];
+export const LEGACY_DEMO_CUSTOMER_IDS = ['cust-001', 'cust-002', 'cust-003'];
+
+function isBeverageMenuItem(menuItem: any): boolean {
+  const catName = String(menuItem?.category?.name || '').toLowerCase();
+  const itemName = String(menuItem?.name || '').toLowerCase();
+  return (
+    catName.includes('drink') ||
+    catName.includes('beverage') ||
+    catName.includes('water') ||
+    itemName.includes('water') ||
+    itemName.includes('coca') ||
+    itemName.includes('fanta') ||
+    itemName.includes('sprite') ||
+    itemName.includes('soft drink')
+  );
+}
+
+function getLusakaHour(dateInput: Date | string): number {
+  const d = new Date(dateInput);
+  // Africa/Lusaka is permanently UTC+02:00
+  const lusakaTime = new Date(d.getTime() + 2 * 60 * 60 * 1000);
+  return lusakaTime.getUTCHours();
+}
+
 export class FinanceService {
   async getDashboardSummary(tenantId: string, startDate?: Date, endDate?: Date) {
+    const defaultBounds = getLusakaBusinessDateBounds();
     const isStartValid = startDate instanceof Date && !isNaN(startDate.getTime());
     const isEndValid = endDate instanceof Date && !isNaN(endDate.getTime());
 
-    const start = isStartValid ? new Date(startDate.getTime()) : new Date();
-    if (!isStartValid) start.setHours(0, 0, 0, 0);
-
-    const end = isEndValid ? new Date(endDate.getTime()) : new Date();
-    if (!isEndValid) end.setHours(23, 59, 59, 999);
+    const start = isStartValid ? new Date(startDate.getTime()) : defaultBounds.startOfDayLusaka;
+    const end = isEndValid ? new Date(endDate.getTime()) : defaultBounds.endOfDayLusaka;
 
     try {
-      // 1. Sales in period (exclude refunded/reversed sales from revenue and COGS)
+      // 1. Real Sales in period (exclude refunded/reversed sales and legacy demo seed records)
       const allSalesInPeriod = await prisma.sale.findMany({
         where: {
           tenantId,
+          id: { notIn: LEGACY_DEMO_SALE_IDS },
           createdAt: { gte: start, lte: end }
         },
-        include: { payments: true, items: { include: { menuItem: { include: { category: true } } } } }
+        include: { payments: true, items: { include: { menuItem: { include: { category: true } } } } },
+        orderBy: { createdAt: 'desc' }
       });
 
       const salesInPeriod = allSalesInPeriod.filter((s: any) => s.paymentStatus !== 'REFUNDED');
@@ -32,6 +60,7 @@ export class FinanceService {
       let creditSales = 0;
       let cogsToday = 0;
       let totalPortionsSold = 0;
+      let totalBeveragesSold = 0;
 
       for (const s of salesInPeriod) {
         todaySales += Number(s.totalAmount);
@@ -42,22 +71,33 @@ export class FinanceService {
           else if (p.paymentMethod === 'CUSTOMER_CREDIT') creditSales += amt;
         }
         for (const item of s.items) {
-          totalPortionsSold += item.quantity;
-          const unitCost = Number(item.unitCost) > 0 ? Number(item.unitCost) : Number(item.menuItem.estimatedCost);
+          if (isBeverageMenuItem(item.menuItem)) {
+            totalBeveragesSold += item.quantity;
+          } else {
+            totalPortionsSold += item.quantity;
+          }
+          const unitCost = Number(item.unitCost) > 0 ? Number(item.unitCost) : Number(item.menuItem?.estimatedCost || 0);
           cogsToday += item.quantity * unitCost;
         }
       }
 
-      // 2. Outstanding Debtors
+      // 2. Outstanding Debtors (real active customer accounts only)
       const customers = await prisma.customer.findMany({
-        where: { tenantId, currentBalance: { gt: 0 } }
+        where: {
+          tenantId,
+          isActive: true,
+          id: { notIn: LEGACY_DEMO_CUSTOMER_IDS },
+          currentBalance: { gt: 0 }
+        }
       });
       const outstandingDebtors = customers.reduce((sum: number, c: any) => sum + Number(c.currentBalance), 0);
+      const activeDebtorCount = customers.length;
 
-      // 3. Operating Expenses in period
+      // 3. Operating Expenses in period (real expenses only)
       const expensesInPeriod = await prisma.expense.findMany({
         where: {
           tenantId,
+          id: { notIn: LEGACY_DEMO_EXPENSE_IDS },
           expenseDate: { gte: start, lte: end }
         }
       });
@@ -78,30 +118,55 @@ export class FinanceService {
         }
       }
 
-      // 5. Kitchen Production in period
+      // 5. Kitchen Production strictly within the selected filter period [start, end]
       const startDayUtc = getLusakaBusinessDateBounds(start).businessDateUtc;
       const endDayUtc = getLusakaBusinessDateBounds(end).businessDateUtc;
+
+      const productionBatches = await prisma.productionBatch.findMany({
+        where: {
+          register: { tenantId },
+          createdAt: { gte: start, lte: end }
+        }
+      });
+
+      const totalPortionsPrepared = productionBatches.reduce(
+        (sum: number, b: any) => sum + Number(b.actualPreparedPortions || 0),
+        0
+      );
 
       const kitchenRegisters = await prisma.kitchenRegister.findMany({
         where: {
           tenantId,
           businessDate: { gte: startDayUtc, lte: endDayUtc }
         },
-        include: { items: true }
+        include: { items: true, batches: true }
       });
-      let totalPortionsPrepared = 0;
+
       let totalPortionsWaste = 0;
+      let totalStaffMeals = 0;
+      let totalComplimentary = 0;
       for (const reg of kitchenRegisters) {
+        const isUnbatchedDemoReg = reg.id === 'reg-today-001' && (!reg.batches || reg.batches.length === 0);
+        if (isUnbatchedDemoReg) continue;
         for (const item of reg.items) {
-          totalPortionsPrepared += item.preparedPortions;
-          totalPortionsWaste += item.wastePortions;
+          totalPortionsWaste += Number(item.wastePortions || 0);
+          totalStaffMeals += Number(item.staffMealPortions || 0);
+          totalComplimentary += Number(item.complimentaryPortions || 0);
         }
       }
 
       // 6. Visualizations & Analytical Intelligence
-      // 6a. Hourly Sales & Dining Traffic Distribution (08:00 to 22:00)
+      // 6a. Hourly Sales & Dining Traffic Distribution in Africa/Lusaka Time (UTC+2)
+      let minHour = 6;
+      let maxHour = 22;
+      for (const s of salesInPeriod) {
+        const h = getLusakaHour(s.createdAt);
+        if (h < minHour) minHour = h;
+        if (h > maxHour) maxHour = h;
+      }
+
       const hourlySalesMap: { [hour: number]: { count: number; total: number } } = {};
-      for (let h = 7; h <= 22; h++) {
+      for (let h = minHour; h <= maxHour; h++) {
         hourlySalesMap[h] = { count: 0, total: 0 };
       }
 
@@ -111,17 +176,21 @@ export class FinanceService {
       // 6c. Top Dishes Ranking
       const dishSalesMap: { [menuItemId: string]: { name: string; portions: number; revenue: number; cost: number } } = {};
 
+      let totalItemRevenue = 0;
+
       for (const s of salesInPeriod) {
-        const saleHour = new Date(s.createdAt).getHours();
-        if (hourlySalesMap[saleHour]) {
-          hourlySalesMap[saleHour].count += 1;
-          hourlySalesMap[saleHour].total += Number(s.totalAmount);
+        const saleHour = getLusakaHour(s.createdAt);
+        if (!hourlySalesMap[saleHour]) {
+          hourlySalesMap[saleHour] = { count: 0, total: 0 };
         }
+        hourlySalesMap[saleHour].count += 1;
+        hourlySalesMap[saleHour].total += Number(s.totalAmount);
 
         for (const item of s.items) {
-          const itemRev = item.quantity * Number(item.unitPrice);
+          const itemRev = Number(item.subtotal || item.quantity * Number(item.unitPrice));
           const itemCost = item.quantity * Number(item.unitCost || item.menuItem?.estimatedCost || 0);
           const catName = item.menuItem?.category?.name || 'General Menu';
+          totalItemRevenue += itemRev;
 
           // Category
           if (!categoryRevenueMap[catName]) {
@@ -147,17 +216,19 @@ export class FinanceService {
         }
       }
 
-      // Format Hourly Stats
-      const hourlyDistribution = Object.keys(hourlySalesMap).map((h) => {
-        const hour = Number(h);
-        const label = `${hour.toString().padStart(2, '0')}:00`;
-        return {
-          hour,
-          label,
-          orders: hourlySalesMap[hour].count,
-          revenue: roundTo2Decimals(hourlySalesMap[hour].total)
-        };
-      });
+      // Format Hourly Stats sorted by hour
+      const hourlyDistribution = Object.keys(hourlySalesMap)
+        .map((h) => Number(h))
+        .sort((a, b) => a - b)
+        .map((hour) => {
+          const label = `${hour.toString().padStart(2, '0')}:00`;
+          return {
+            hour,
+            label,
+            orders: hourlySalesMap[hour].count,
+            revenue: roundTo2Decimals(hourlySalesMap[hour].total)
+          };
+        });
 
       // Format Top Dishes
       const topSellingDishes = Object.values(dishSalesMap)
@@ -171,26 +242,26 @@ export class FinanceService {
         }));
 
       // Format Category Breakdown
+      const categoryDenominator = totalItemRevenue > 0 ? totalItemRevenue : todaySales;
       const categoryBreakdown = Object.values(categoryRevenueMap)
         .sort((a, b) => b.revenue - a.revenue)
         .map((c) => ({
           category: c.name,
           portions: c.portions,
           revenue: roundTo2Decimals(c.revenue),
-          percentage: todaySales > 0 ? Math.round((c.revenue / todaySales) * 100) : 0
+          percentage: categoryDenominator > 0 ? Math.round((c.revenue / categoryDenominator) * 100) : 0
         }));
 
-      // Average Ticket Size & Peak Velocity
+      // Average Ticket Size & Authentic Peak Velocity
       const totalTicketsCount = salesInPeriod.length;
       const averageTicketSize = totalTicketsCount > 0 ? roundTo2Decimals(todaySales / totalTicketsCount) : 0;
-      
-      // Find peak hour
-      let peakHour = '12:00 - 14:00 (Lunch Rush)';
-      let maxHourOrders = 0;
+
+      let peakHour = 'No orders in period';
+      let maxHourRevenue = 0;
       for (const h of hourlyDistribution) {
-        if (h.orders > maxHourOrders) {
-          maxHourOrders = h.orders;
-          peakHour = `${h.label} (${h.orders} orders)`;
+        if (h.revenue > maxHourRevenue) {
+          maxHourRevenue = h.revenue;
+          peakHour = `${h.label} (${h.orders} order${h.orders === 1 ? '' : 's'})`;
         }
       }
 
@@ -209,6 +280,7 @@ export class FinanceService {
         mobileMoneyReceived: roundTo2Decimals(mobileMoneyReceived),
         creditSales: roundTo2Decimals(creditSales),
         outstandingDebtors: roundTo2Decimals(outstandingDebtors),
+        activeDebtorCount,
         cogs: roundTo2Decimals(cogsToday),
         grossProfit,
         grossMarginPercentage,
@@ -218,7 +290,11 @@ export class FinanceService {
         lowStockCount,
         totalPortionsPrepared,
         totalPortionsSold,
+        totalBeveragesSold,
         totalPortionsWaste,
+        totalStaffMeals,
+        totalComplimentary,
+        voidsAndReversalsCount,
         totalTicketsCount,
         averageTicketSize,
         peakHour,
@@ -239,6 +315,7 @@ export class FinanceService {
         mobileMoneyReceived: 0,
         creditSales: 0,
         outstandingDebtors: 0,
+        activeDebtorCount: 0,
         cogs: 0,
         grossProfit: 0,
         grossMarginPercentage: 0,
@@ -248,10 +325,14 @@ export class FinanceService {
         lowStockCount: 0,
         totalPortionsPrepared: 0,
         totalPortionsSold: 0,
+        totalBeveragesSold: 0,
         totalPortionsWaste: 0,
+        totalStaffMeals: 0,
+        totalComplimentary: 0,
+        voidsAndReversalsCount: 0,
         totalTicketsCount: 0,
         averageTicketSize: 0,
-        peakHour: 'N/A',
+        peakHour: 'No orders in period',
         hourlyDistribution: [],
         topSellingDishes: [],
         categoryBreakdown: []
@@ -268,7 +349,10 @@ export class FinanceService {
 
   async getExpenses(tenantId: string) {
     return prisma.expense.findMany({
-      where: { tenantId },
+      where: {
+        tenantId,
+        id: { notIn: LEGACY_DEMO_EXPENSE_IDS }
+      },
       include: { category: true },
       orderBy: { expenseDate: 'desc' }
     });

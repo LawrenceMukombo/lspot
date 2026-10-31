@@ -139,37 +139,6 @@ export class KitchenService {
           });
         }
       });
-
-      // Re-sync today's register items from all batches belonging to today's register
-      const todayBatches = await prisma.productionBatch.findMany({
-        where: { registerId: register.id }
-      });
-      const todayItems = await prisma.kitchenRegisterItem.findMany({
-        where: { registerId: register.id }
-      });
-
-      for (const item of todayItems) {
-        const preparedToday = todayBatches
-          .filter((b: any) => b.menuItemId === item.menuItemId)
-          .reduce((sum: number, b: any) => sum + Number(b.actualPreparedPortions || 0), 0);
-        const remainingToday = calculateClosingPreparedPortions({
-          openingPortions: 0,
-          preparedPortions: preparedToday,
-          soldPortions: item.soldPortions,
-          wastePortions: item.wastePortions,
-          staffMealPortions: item.staffMealPortions,
-          complimentaryPortions: item.complimentaryPortions
-        });
-
-        await prisma.kitchenRegisterItem.update({
-          where: { id: item.id },
-          data: {
-            openingPortions: 0,
-            preparedPortions: preparedToday,
-            remainingPortions: remainingToday
-          }
-        });
-      }
     }
 
     // 3. Ensure all active menu items are present in today's register items
@@ -197,6 +166,76 @@ export class KitchenService {
           closingPortions: 0
         }))
       });
+    }
+
+    // 4. Authoritative Daily Sync: reconcile today's register items strictly against actual ProductionBatch records
+    //    and real POS sales today (excluding legacy demo seed sales sale-001..005).
+    const todayBatches = await prisma.productionBatch.findMany({
+      where: { registerId: register.id }
+    });
+    const realSalesToday = await prisma.sale.findMany({
+      where: {
+        tenantId,
+        id: { notIn: ['sale-001', 'sale-002', 'sale-003', 'sale-004', 'sale-005'] },
+        paymentStatus: { not: 'REFUNDED' },
+        createdAt: { gte: startOfDayLusaka, lte: endOfDayLusaka }
+      },
+      include: { items: true }
+    });
+    const soldByMenuItem = new Map<string, number>();
+    for (const s of realSalesToday) {
+      for (const it of s.items) {
+        soldByMenuItem.set(it.menuItemId, (soldByMenuItem.get(it.menuItemId) || 0) + Number(it.quantity || 0));
+      }
+    }
+
+    const todayItems = await prisma.kitchenRegisterItem.findMany({
+      where: { registerId: register.id }
+    });
+
+    for (const item of todayItems) {
+      const preparedToday = todayBatches
+        .filter((b: any) => b.menuItemId === item.menuItemId)
+        .reduce((sum: number, b: any) => sum + Number(b.actualPreparedPortions || 0), 0);
+      const soldToday = soldByMenuItem.get(item.menuItemId) || 0;
+      const isLegacySeedRowWithNoBatches =
+        ['kitem-001', 'kitem-002', 'kitem-003', 'kitem-004', 'kitem-005'].includes(item.id) &&
+        preparedToday === 0;
+      const wasteToday = isLegacySeedRowWithNoBatches ? 0 : item.wastePortions;
+      const staffToday = isLegacySeedRowWithNoBatches ? 0 : item.staffMealPortions;
+      const compToday = isLegacySeedRowWithNoBatches ? 0 : item.complimentaryPortions;
+
+      const remainingToday = calculateClosingPreparedPortions({
+        openingPortions: 0,
+        preparedPortions: preparedToday,
+        soldPortions: soldToday,
+        wastePortions: wasteToday,
+        staffMealPortions: staffToday,
+        complimentaryPortions: compToday
+      });
+
+      if (
+        item.openingPortions !== 0 ||
+        item.preparedPortions !== preparedToday ||
+        item.soldPortions !== soldToday ||
+        item.wastePortions !== wasteToday ||
+        item.staffMealPortions !== staffToday ||
+        item.complimentaryPortions !== compToday ||
+        item.remainingPortions !== remainingToday
+      ) {
+        await prisma.kitchenRegisterItem.update({
+          where: { id: item.id },
+          data: {
+            openingPortions: 0,
+            preparedPortions: preparedToday,
+            soldPortions: soldToday,
+            wastePortions: wasteToday,
+            staffMealPortions: staffToday,
+            complimentaryPortions: compToday,
+            remainingPortions: remainingToday
+          }
+        });
+      }
     }
 
     // Re-fetch today's authoritative register with items and batches ordered newest-first

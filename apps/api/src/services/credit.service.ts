@@ -1,10 +1,15 @@
 import { prisma } from '@lspot/database';
 import { roundTo2Decimals, PaymentMethod } from '@lspot/shared';
+import { LEGACY_DEMO_CUSTOMER_IDS, LEGACY_DEMO_SALE_IDS } from './finance.service.js';
 
 export class CreditService {
   async getCustomers(tenantId: string) {
     const customers = await prisma.customer.findMany({
-      where: { tenantId, isActive: true },
+      where: {
+        tenantId,
+        isActive: true,
+        id: { notIn: LEGACY_DEMO_CUSTOMER_IDS }
+      },
       orderBy: { name: 'asc' }
     });
 
@@ -71,7 +76,7 @@ export class CreditService {
       where: { id: customerId, tenantId },
       include: {
         sales: {
-          where: { paymentStatus: 'CREDIT' },
+          where: { paymentStatus: 'CREDIT', id: { notIn: LEGACY_DEMO_SALE_IDS } },
           include: { items: { include: { menuItem: true } } },
           orderBy: { createdAt: 'desc' }
         },
@@ -194,7 +199,12 @@ export class CreditService {
 
   async getAgeingReport(tenantId: string) {
     const customers = await prisma.customer.findMany({
-      where: { tenantId, currentBalance: { gt: 0 } },
+      where: {
+        tenantId,
+        isActive: true,
+        id: { notIn: LEGACY_DEMO_CUSTOMER_IDS },
+        currentBalance: { gt: 0 }
+      },
       include: {
         invoices: {
           where: { status: { in: ['ISSUED', 'PARTIALLY_PAID', 'OVERDUE'] } }

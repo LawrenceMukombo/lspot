@@ -268,64 +268,33 @@ export function MenuView() {
   const loadRecipes = async () => {
     try {
       const data = await apiRequest('/recipes');
-      if (data && data.length > 0) {
+      if (data && Array.isArray(data) && data.length > 0) {
         setRecipes(data);
         setSelectedRecipeId(data[0].id);
         handleScale(data[0].id, 30);
       } else {
-        // Fallback default recipe
-        setRecipes([
-          {
-            id: 'r1',
-            name: 'Standard Nshima with Chicken Recipe (10 Portions Base)',
-            expectedPortionYield: 10,
-            recipeIngredients: [
-              { stockItem: { name: 'Mealie Meal' }, quantity: 2.5, unitOfMeasure: 'kg' },
-              { stockItem: { name: 'Fresh Chicken' }, quantity: 2.5, unitOfMeasure: 'kg' },
-              { stockItem: { name: 'Cooking Oil' }, quantity: 0.25, unitOfMeasure: 'l' },
-              { stockItem: { name: 'Fresh Tomatoes' }, quantity: 0.5, unitOfMeasure: 'kg' },
-              { stockItem: { name: 'Onions' }, quantity: 0.25, unitOfMeasure: 'kg' },
-              { stockItem: { name: 'Rape / Vegetables' }, quantity: 1.0, unitOfMeasure: 'kg' }
-            ]
-          }
-        ]);
-        setSelectedRecipeId('r1');
-        handleFallbackScale(30);
+        setRecipes([]);
+        setSelectedRecipeId('');
+        setScaledResult(null);
       }
-    } catch (e) {
-      handleFallbackScale(30);
+    } catch {
+      setRecipes([]);
+      setSelectedRecipeId('');
+      setScaledResult(null);
     }
   };
 
   const handleScale = async (recipeId: string, portions: number) => {
+    if (!recipeId) return;
     try {
       const res = await apiRequest('/recipes/scale', {
         method: 'POST',
         body: JSON.stringify({ recipeId, targetPortions: portions })
       });
       if (res) setScaledResult(res);
-    } catch (e) {
-      handleFallbackScale(portions);
+    } catch {
+      setScaledResult(null);
     }
-  };
-
-  const handleFallbackScale = (portions: number) => {
-    const scale = portions / 10;
-    setScaledResult({
-      recipeName: 'Standard Nshima with Chicken',
-      targetPortions: portions,
-      scaleFactor: scale,
-      totalEstimatedCost: 285.0 * scale,
-      costPerPortion: 28.5,
-      ingredients: [
-        { stockItemName: 'Mealie Meal', baseQuantity: 2.5, scaledQuantity: 2.5 * scale, unitOfMeasure: 'kg', estimatedCost: 30 * scale },
-        { stockItemName: 'Fresh Chicken', baseQuantity: 2.5, scaledQuantity: 2.5 * scale, unitOfMeasure: 'kg', estimatedCost: 112.5 * scale },
-        { stockItemName: 'Cooking Oil', baseQuantity: 0.25, scaledQuantity: 0.25 * scale, unitOfMeasure: 'l', estimatedCost: 8.75 * scale },
-        { stockItemName: 'Fresh Tomatoes', baseQuantity: 0.5, scaledQuantity: 0.5 * scale, unitOfMeasure: 'kg', estimatedCost: 9 * scale },
-        { stockItemName: 'Onions', baseQuantity: 0.25, scaledQuantity: 0.25 * scale, unitOfMeasure: 'kg', estimatedCost: 5 * scale },
-        { stockItemName: 'Rape / Vegetables', baseQuantity: 1.0, scaledQuantity: 1.0 * scale, unitOfMeasure: 'kg', estimatedCost: 15 * scale }
-      ]
-    });
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {

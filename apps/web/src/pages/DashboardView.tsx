@@ -34,9 +34,19 @@ import {
 import { apiRequest } from '../api.js';
 import { formatZMW } from '@lspot/shared';
 
-type DateRangeOption = 'today' | 'yesterday' | 'week' | 'month';
+type DateRangeOption = 'today' | 'yesterday' | 'week' | 'month' | 'custom';
+
+function getLusakaDateString(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Lusaka',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(d);
+}
 
 export function DashboardView() {
+  const todayLusakaStr = getLusakaDateString();
   const [data, setData] = useState<any>({
     currency: 'ZMW',
     todaySales: 0,
@@ -44,6 +54,7 @@ export function DashboardView() {
     mobileMoneyReceived: 0,
     creditSales: 0,
     outstandingDebtors: 0,
+    activeDebtorCount: 0,
     cogs: 0,
     grossProfit: 0,
     grossMarginPercentage: 0,
@@ -53,11 +64,14 @@ export function DashboardView() {
     lowStockCount: 0,
     totalPortionsPrepared: 0,
     totalPortionsSold: 0,
+    totalBeveragesSold: 0,
     totalPortionsWaste: 0
   });
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedRange, setSelectedRange] = useState<DateRangeOption>('today');
+  const [customStartDate, setCustomStartDate] = useState<string>(todayLusakaStr);
+  const [customEndDate, setCustomEndDate] = useState<string>(todayLusakaStr);
   const [filterType, setFilterType] = useState<'ALL' | 'CASH' | 'MOMO' | 'CREDIT'>('ALL');
   const [drillDownModal, setDrillDownModal] = useState<any | null>(null);
 
@@ -98,7 +112,7 @@ export function DashboardView() {
 
   useEffect(() => {
     loadDashboard(selectedRange);
-  }, [selectedRange]);
+  }, [selectedRange, customStartDate, customEndDate]);
 
   const openRevenueDrillDown = async () => {
     const { start, end } = getDateRangeBounds(selectedRange);
@@ -166,28 +180,44 @@ export function DashboardView() {
 
   const getDateRangeBounds = (range: DateRangeOption) => {
     const now = new Date();
-    const start = new Date(now);
-    const end = new Date(now);
+    const todayStr = getLusakaDateString(now);
 
     if (range === 'today') {
-      start.setHours(0, 0, 0, 0);
-      end.setHours(23, 59, 59, 999);
-    } else if (range === 'yesterday') {
-      start.setDate(start.getDate() - 1);
-      start.setHours(0, 0, 0, 0);
-      end.setDate(end.getDate() - 1);
-      end.setHours(23, 59, 59, 999);
-    } else if (range === 'week') {
-      start.setDate(start.getDate() - 7);
-      start.setHours(0, 0, 0, 0);
-      end.setHours(23, 59, 59, 999);
-    } else if (range === 'month') {
-      start.setDate(1);
-      start.setHours(0, 0, 0, 0);
-      end.setHours(23, 59, 59, 999);
+      return {
+        start: new Date(`${todayStr}T00:00:00.000+02:00`),
+        end: new Date(`${todayStr}T23:59:59.999+02:00`)
+      };
     }
-
-    return { start, end };
+    if (range === 'yesterday') {
+      const yDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const yStr = getLusakaDateString(yDate);
+      return {
+        start: new Date(`${yStr}T00:00:00.000+02:00`),
+        end: new Date(`${yStr}T23:59:59.999+02:00`)
+      };
+    }
+    if (range === 'week') {
+      const wDate = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
+      const wStr = getLusakaDateString(wDate);
+      return {
+        start: new Date(`${wStr}T00:00:00.000+02:00`),
+        end: new Date(`${todayStr}T23:59:59.999+02:00`)
+      };
+    }
+    if (range === 'month') {
+      const monthStartStr = `${todayStr.slice(0, 7)}-01`;
+      return {
+        start: new Date(`${monthStartStr}T00:00:00.000+02:00`),
+        end: new Date(`${todayStr}T23:59:59.999+02:00`)
+      };
+    }
+    // custom range
+    const startStr = customStartDate || todayStr;
+    const endStr = customEndDate && customEndDate >= startStr ? customEndDate : startStr;
+    return {
+      start: new Date(`${startStr}T00:00:00.000+02:00`),
+      end: new Date(`${endStr}T23:59:59.999+02:00`)
+    };
   };
 
   const getRangeLabel = (range: DateRangeOption) => {
@@ -198,6 +228,10 @@ export function DashboardView() {
         return "This Week's";
       case 'month':
         return "This Month's";
+      case 'custom':
+        return customStartDate === customEndDate
+          ? `${customStartDate}`
+          : `${customStartDate} to ${customEndDate}`;
       default:
         return "Today's";
     }
@@ -277,14 +311,15 @@ export function DashboardView() {
             <span>Customers Roster ({data.outstandingDebtors > 0 ? `ZMW ${data.outstandingDebtors.toFixed(0)} Debt` : 'All Active'})</span>
           </button>
 
-          {/* Quick Date Range Buttons (UI-02) */}
-          <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold">
+          {/* Quick Date Range Buttons (Today, Yesterday, This Week, This Month, Custom Range) */}
+          <div className="flex flex-wrap bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold">
             {(
               [
                 { id: 'today', label: 'Today' },
                 { id: 'yesterday', label: 'Yesterday' },
                 { id: 'week', label: 'This Week' },
-                { id: 'month', label: 'This Month' }
+                { id: 'month', label: 'This Month' },
+                { id: 'custom', label: 'Selected Range' }
               ] as const
             ).map((item) => (
               <button
@@ -300,6 +335,32 @@ export function DashboardView() {
               </button>
             ))}
           </div>
+
+          {selectedRange === 'custom' && (
+            <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 dark:bg-slate-950 px-2.5 py-1 rounded-xl border border-amber-500/40 text-xs">
+              <Calendar className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              <input
+                type="date"
+                value={customStartDate}
+                max={todayLusakaStr}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setCustomStartDate(val);
+                  if (customEndDate < val) setCustomEndDate(val);
+                }}
+                className="bg-transparent text-slate-800 dark:text-slate-200 font-mono text-xs focus:outline-none"
+              />
+              <span className="text-slate-400">to</span>
+              <input
+                type="date"
+                value={customEndDate}
+                min={customStartDate}
+                max={todayLusakaStr}
+                onChange={(e) => setCustomEndDate(e.target.value)}
+                className="bg-transparent text-slate-800 dark:text-slate-200 font-mono text-xs focus:outline-none"
+              />
+            </div>
+          )}
 
           <button
             onClick={() => loadDashboard()}
@@ -345,12 +406,20 @@ export function DashboardView() {
           className="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-lg relative overflow-hidden group hover:border-emerald-500/70 transition cursor-pointer hover:scale-[1.01]"
         >
           <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider">Operating Profit</span>
+            <span className="text-xs font-semibold uppercase tracking-wider">{getRangeLabel(selectedRange)} Operating Profit</span>
             <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center group-hover:bg-emerald-500 group-hover:text-slate-950 transition">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-emerald-400 tracking-tight">
+          <div
+            className={`text-2xl font-bold tracking-tight ${
+              data.operatingProfit < 0
+                ? 'text-rose-400'
+                : data.operatingProfit > 0
+                ? 'text-emerald-400'
+                : 'text-slate-200'
+            }`}
+          >
             {formatZMW(data.operatingProfit)}
           </div>
           <div className="flex items-center justify-between mt-2">
@@ -365,7 +434,7 @@ export function DashboardView() {
 
         {/* Outstanding Debtors Card */}
         <div
-          onClick={openRevenueDrillDown}
+          onClick={openCustomersDirectory}
           className="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-lg relative overflow-hidden group hover:border-blue-500/70 transition cursor-pointer hover:scale-[1.01]"
         >
           <div className="flex items-center justify-between text-slate-400 mb-2">
@@ -379,10 +448,12 @@ export function DashboardView() {
           </div>
           <div className="flex items-center justify-between mt-2">
             <p className="text-xs text-slate-400">
-              Active credit customer accounts (Kalumbila & Corporate)
+              {data.activeDebtorCount > 0
+                ? `${data.activeDebtorCount} customer account(s) with unpaid balance`
+                : 'Zero outstanding customer debt'}
             </p>
             <span className="text-[10px] text-blue-400 font-bold group-hover:underline flex items-center gap-0.5">
-              Audit Credit Sales <ArrowUpRight className="w-3 h-3" />
+              Audit Credit Accounts <ArrowUpRight className="w-3 h-3" />
             </span>
           </div>
         </div>
@@ -480,26 +551,27 @@ export function DashboardView() {
           </div>
         </div>
 
-        {/* Daily Kitchen Closed-Loop Reconciliation */}
+        {/* Period Kitchen Closed-Loop Reconciliation */}
         <div
           onClick={() =>
             setDrillDownModal({
-              title: 'Kitchen Daily Production Loop & Yield Register',
-              subtitle: 'Batch preparation vs POS tickets printed vs physical waste log',
+              title: `${getRangeLabel(selectedRange)} Kitchen Production Loop & Yield Register`,
+              subtitle: 'Batch preparation vs POS tickets printed vs physical waste log for selected period',
               metrics: [
-                { label: 'Total Portions Prepared', value: `${data.totalPortionsPrepared} portions` },
-                { label: 'Portions Sold (POS)', value: `${data.totalPortionsSold} billed` },
+                { label: 'Cooked Portions Prepared', value: `${data.totalPortionsPrepared} portions` },
+                { label: 'Cooked Portions Sold (POS)', value: `${data.totalPortionsSold} billed` },
+                { label: 'Direct Resale Beverages Sold', value: `${data.totalBeveragesSold || 0} units` },
                 { label: 'Portions Waste / Spoilage', value: `${data.totalPortionsWaste} recorded` },
                 {
-                  label: 'Portions Remaining for Dinner',
+                  label: 'Unsold / Remaining Portions in Period',
                   value: `${Math.max(0, data.totalPortionsPrepared - data.totalPortionsSold - data.totalPortionsWaste)} portions`
                 },
                 {
-                  label: 'Sell-Through Rate',
+                  label: 'Portion Sell-Through Rate',
                   value: `${data.totalPortionsPrepared > 0 ? ((data.totalPortionsSold / data.totalPortionsPrepared) * 100).toFixed(1) : 0}%`
                 }
               ],
-              notes: 'Kitchen Control Rule: Any portion variance exceeding 5% triggers supervisor verification before chef shift handover is approved.'
+              notes: 'Kitchen Control Rule: Prepared portions reflect only actual Cooking Batches recorded during the selected filter range.'
             })
           }
           className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl cursor-pointer hover:border-amber-500/40 transition group"
@@ -507,12 +579,12 @@ export function DashboardView() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-base text-white">Daily Kitchen Production Loop</h3>
+                <h3 className="font-bold text-base text-white">{getRangeLabel(selectedRange)} Kitchen Production Loop</h3>
                 <span className="text-[10px] text-amber-400 font-bold group-hover:underline flex items-center gap-0.5">
                   Drill down <ArrowUpRight className="w-3 h-3" />
                 </span>
               </div>
-              <p className="text-xs text-slate-400">Portions cooked vs portions sold at POS vs waste</p>
+              <p className="text-xs text-slate-400">Portions cooked vs portions sold at POS vs waste for selected filter</p>
             </div>
             <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
               <ChefHat className="w-4 h-4" />
@@ -523,12 +595,14 @@ export function DashboardView() {
             <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl">
               <p className="text-xs text-slate-400 uppercase font-semibold">Prepared</p>
               <p className="text-2xl font-bold text-white mt-1">{data.totalPortionsPrepared}</p>
-              <span className="text-[11px] text-slate-500">portions</span>
+              <span className="text-[11px] text-slate-500">portions cooked</span>
             </div>
             <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl">
               <p className="text-xs text-slate-400 uppercase font-semibold">Sold (POS)</p>
               <p className="text-2xl font-bold text-emerald-400 mt-1">{data.totalPortionsSold}</p>
-              <span className="text-[11px] text-emerald-500/80">billed</span>
+              <span className="text-[11px] text-emerald-500/80">
+                meals{data.totalBeveragesSold > 0 ? ` (+${data.totalBeveragesSold} drinks)` : ''}
+              </span>
             </div>
             <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl">
               <p className="text-xs text-slate-400 uppercase font-semibold">Waste / Loss</p>
@@ -539,7 +613,7 @@ export function DashboardView() {
 
           <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl space-y-2 text-xs">
             <div className="flex justify-between text-slate-300">
-              <span>Remaining Available Portions for Dinner:</span>
+              <span>Unsold / Remaining Prepared Portions:</span>
               <span className="font-bold font-mono text-amber-400">
                 {Math.max(0, data.totalPortionsPrepared - data.totalPortionsSold - data.totalPortionsWaste)} Portions
               </span>
@@ -549,7 +623,7 @@ export function DashboardView() {
               <span className="font-mono">
                 {data.totalPortionsPrepared > 0
                   ? ((data.totalPortionsSold / data.totalPortionsPrepared) * 100).toFixed(1)
-                  : 0}
+                  : '0.0'}
                 %
               </span>
             </div>
@@ -568,55 +642,73 @@ export function DashboardView() {
           <div>
             <div className="flex items-center justify-between mb-4">
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="font-bold text-base text-white">Hourly Sales Volume & Dining Rush</h3>
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                    Peak: {data.peakHour || 'Lunch & Dinner'}
+                    Peak: {data.peakHour || 'No orders in period'}
                   </span>
                 </div>
-                <p className="text-xs text-slate-400">Revenue & order frequency distributed across service hours (07:00 - 22:00)</p>
+                <p className="text-xs text-slate-400">
+                  Revenue & order frequency distributed across Africa/Lusaka service hours ({getRangeLabel(selectedRange)})
+                </p>
               </div>
               <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
                 <BarChart3 className="w-4 h-4" />
               </div>
             </div>
 
-            {/* Visual Bar Chart */}
-            <div className="pt-4 pb-2">
+            {/* Visual Bar Chart with Explicit Pixel Heights */}
+            <div className="pt-2 pb-2">
               {data.hourlyDistribution && data.hourlyDistribution.length > 0 ? (
-                <div className="flex items-end gap-1.5 h-44 w-full px-2 pt-6 pb-2 bg-slate-950/60 rounded-xl border border-slate-800/80">
+                <div className="relative flex items-end gap-1.5 h-48 w-full px-2.5 pt-8 pb-2 bg-slate-950/60 rounded-xl border border-slate-800/80 overflow-x-auto">
+                  {data.todaySales <= 0 && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <span className="text-xs text-slate-500 bg-slate-900/90 px-3 py-1.5 rounded-lg border border-slate-800">
+                        No sales recorded for {getRangeLabel(selectedRange).toLowerCase()} period yet
+                      </span>
+                    </div>
+                  )}
                   {(() => {
-                    const maxHourlyRev = Math.max(...data.hourlyDistribution.map((h: any) => h.revenue), 1);
+                    const maxHourlyRev = Math.max(...data.hourlyDistribution.map((h: any) => Number(h.revenue || 0)), 1);
                     return data.hourlyDistribution.map((bar: any) => {
-                      const heightPercent = Math.max(8, Math.round((bar.revenue / maxHourlyRev) * 100));
-                      const isPeak = bar.revenue > 0 && bar.revenue >= maxHourlyRev * 0.8;
+                      const rev = Number(bar.revenue || 0);
+                      const orders = Number(bar.orders || 0);
+                      const barHeightPx = rev > 0 ? Math.max(22, Math.round((rev / maxHourlyRev) * 116)) : 5;
+                      const isPeak = rev > 0 && rev >= maxHourlyRev * 0.8;
                       return (
-                        <div key={bar.hour} className="flex-1 flex flex-col items-center h-full justify-end group relative">
+                        <div key={bar.hour} className="flex-1 min-w-[26px] flex flex-col items-center justify-end group relative">
                           {/* Tooltip on hover */}
-                          <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute -top-12 z-20 pointer-events-none bg-slate-800 border border-slate-700 text-white text-[10px] py-1 px-2 rounded shadow-lg whitespace-nowrap">
-                            <p className="font-bold">{bar.label}</p>
-                            <p className="text-amber-400 font-mono">{formatZMW(bar.revenue)} ({bar.orders} orders)</p>
+                          <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-full mb-1 z-20 pointer-events-none bg-slate-800 border border-slate-700 text-white text-[10px] py-1 px-2 rounded shadow-lg whitespace-nowrap">
+                            <p className="font-bold">{bar.label} (Lusaka)</p>
+                            <p className="text-amber-400 font-mono">{formatZMW(rev)} ({orders} order{orders === 1 ? '' : 's'})</p>
                           </div>
-                          
-                          {/* Bar Graphic */}
+
+                          {/* Value badge above active bars */}
+                          {rev > 0 && (
+                            <span className="text-[9px] font-mono font-bold text-amber-300 mb-1 whitespace-nowrap">
+                              K{Math.round(rev)}
+                            </span>
+                          )}
+
+                          {/* Bar Graphic with Explicit Pixel Height */}
                           <div
-                            style={{ height: `${heightPercent}%` }}
+                            style={{ height: `${barHeightPx}px` }}
                             className={`w-full rounded-t-md transition-all duration-500 ${
                               isPeak
                                 ? 'bg-gradient-to-t from-amber-600 to-amber-400 shadow-md shadow-amber-500/20'
-                                : bar.revenue > 0
+                                : rev > 0
                                 ? 'bg-gradient-to-t from-indigo-700 to-indigo-500'
                                 : 'bg-slate-800/60'
                             }`}
                           />
-                          <span className="text-[9px] text-slate-500 mt-2 font-mono">{bar.hour}h</span>
+                          <span className="text-[9px] text-slate-500 mt-1.5 font-mono">{bar.hour}h</span>
                         </div>
                       );
                     });
                   })()}
                 </div>
               ) : (
-                <div className="h-44 flex items-center justify-center bg-slate-950/40 rounded-xl border border-slate-800 text-slate-500 text-xs">
+                <div className="h-48 flex items-center justify-center bg-slate-950/40 rounded-xl border border-slate-800 text-slate-500 text-xs">
                   No sales recorded in the selected date range yet.
                 </div>
               )}
@@ -635,8 +727,23 @@ export function DashboardView() {
             </div>
             <div>
               <p className="text-slate-400">Velocity Status</p>
-              <p className="text-base font-bold text-emerald-400 mt-0.5 flex items-center gap-1">
-                <Zap className="w-3.5 h-3.5" /> High Demand
+              <p
+                className={`text-base font-bold mt-0.5 flex items-center gap-1 ${
+                  (data.totalTicketsCount || 0) >= 10
+                    ? 'text-emerald-400'
+                    : (data.totalTicketsCount || 0) > 0
+                    ? 'text-amber-400'
+                    : 'text-slate-500'
+                }`}
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>
+                  {(data.totalTicketsCount || 0) >= 10
+                    ? 'High Demand'
+                    : (data.totalTicketsCount || 0) > 0
+                    ? 'Active Service'
+                    : 'No Activity'}
+                </span>
               </p>
             </div>
           </div>

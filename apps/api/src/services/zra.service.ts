@@ -1,6 +1,7 @@
 import { prisma } from '@lspot/database';
 import { ZraStatus } from '@lspot/shared';
 import { restaurantService } from './restaurant.service.js';
+import { LEGACY_DEMO_SALE_IDS } from './finance.service.js';
 
 export interface ZraFiscalPayload {
   tpin: string;
@@ -27,11 +28,21 @@ export class ZraService {
     const integrations = await restaurantService.getIntegrationsConfig(tenantId);
 
     const pendingFiscalSales = await prisma.sale.count({
-      where: { tenantId, zraStatus: ZraStatus.PENDING_SUBMISSION, paymentStatus: { not: 'REFUNDED' } }
+      where: {
+        tenantId,
+        id: { notIn: LEGACY_DEMO_SALE_IDS },
+        zraStatus: ZraStatus.PENDING_SUBMISSION,
+        paymentStatus: { not: 'REFUNDED' }
+      }
     });
 
     const fiscalizedSales = await prisma.sale.count({
-      where: { tenantId, zraStatus: ZraStatus.FISCALIZED, paymentStatus: { not: 'REFUNDED' } }
+      where: {
+        tenantId,
+        id: { notIn: LEGACY_DEMO_SALE_IDS },
+        zraStatus: ZraStatus.FISCALIZED,
+        paymentStatus: { not: 'REFUNDED' }
+      }
     });
 
     return {
@@ -118,6 +129,7 @@ export class ZraService {
     const pending = await prisma.sale.findMany({
       where: {
         tenantId,
+        id: { notIn: LEGACY_DEMO_SALE_IDS },
         zraStatus: { not: ZraStatus.FISCALIZED },
         paymentStatus: { not: 'REFUNDED' }
       },

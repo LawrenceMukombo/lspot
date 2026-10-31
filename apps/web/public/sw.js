@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lspot-pwa-cache-v1.3';
+const CACHE_NAME = 'lspot-pwa-cache-v1.4';
 const APP_SHELL_URLS = [
   '/',
   '/index.html',
