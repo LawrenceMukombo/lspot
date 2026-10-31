@@ -53,7 +53,9 @@ export class CreditService {
     }
     if (data.email !== undefined) updateData.email = data.email || null;
     if (data.creditLimit !== undefined) updateData.creditLimit = Number(data.creditLimit);
+    if (data.currentBalance !== undefined) updateData.currentBalance = Math.max(0, roundTo2Decimals(Number(data.currentBalance)));
     if (data.paymentTermsDays !== undefined) updateData.paymentTermsDays = Number(data.paymentTermsDays);
+    if (data.isActive !== undefined) updateData.isActive = Boolean(data.isActive);
     if (updateData.name === null) delete updateData.name;
     if (updateData.phone === null) delete updateData.phone;
     if (updateData.customerType === null) delete updateData.customerType;

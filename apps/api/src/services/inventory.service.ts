@@ -184,28 +184,53 @@ export class InventoryService {
     });
   }
 
-  async createStockItem(tenantId: string, data: any) {
-    let categoryId = data.categoryId;
-    if (!categoryId) {
-      const cat = await prisma.stockCategory.findFirst({
-        where: { tenantId }
+  private async resolveCategoryId(tenantId: string, categoryInput?: string, categoryIdInput?: string | null): Promise<string> {
+    if (categoryIdInput) {
+      const byId = await prisma.stockCategory.findFirst({ where: { id: categoryIdInput, tenantId } });
+      if (byId) return byId.id;
+    }
+    if (categoryInput) {
+      const normalized = String(categoryInput).trim();
+      const friendlyName = normalized.replace(/_/g, ' ');
+      const existingCat = await prisma.stockCategory.findFirst({
+        where: {
+          tenantId,
+          OR: [
+            { code: { equals: normalized, mode: 'insensitive' } },
+            { name: { equals: normalized, mode: 'insensitive' } },
+            { name: { equals: friendlyName, mode: 'insensitive' } }
+          ]
+        }
       });
-      if (cat) {
-        categoryId = cat.id;
-      } else {
-        const newCat = await prisma.stockCategory.create({
-          data: {
-            tenantId,
-            name: data.category ? String(data.category).replace(/_/g, ' ') : 'General Inventory',
-            code: data.category || 'GEN'
-          }
-        });
-        categoryId = newCat.id;
-      }
+      if (existingCat) return existingCat.id;
+
+      const createdCat = await prisma.stockCategory.create({
+        data: {
+          tenantId,
+          name: friendlyName,
+          code: normalized.slice(0, 24).toUpperCase()
+        }
+      });
+      return createdCat.id;
     }
 
-    const initialQty = Number(data.initialQuantity || 0);
-    const unitCost = Number(data.unitCost || 0);
+    const fallback = await prisma.stockCategory.findFirst({ where: { tenantId } });
+    if (fallback) return fallback.id;
+
+    const createdFallback = await prisma.stockCategory.create({
+      data: {
+        tenantId,
+        name: 'General Inventory',
+        code: 'GEN'
+      }
+    });
+    return createdFallback.id;
+  }
+
+  async createStockItem(tenantId: string, data: any) {
+    const categoryId = await this.resolveCategoryId(tenantId, data.category, data.categoryId);
+    const initialQty = Number(data.currentStock ?? data.initialQuantity ?? 0);
+    const unitCost = Number(data.unitCost ?? data.averageUnitCost ?? 0);
 
     return prisma.stockItem.create({
       data: {
@@ -213,12 +238,13 @@ export class InventoryService {
         categoryId,
         name: data.name,
         sku: data.sku,
+        barcode: data.barcode || null,
         unitOfMeasure: data.unitOfMeasure,
-        reorderLevel: Number(data.reorderLevel || 5),
+        reorderLevel: Number(data.reorderLevel ?? 5),
         currentStock: initialQty,
         averageUnitCost: unitCost,
         totalValue: roundTo2Decimals(initialQty * unitCost),
-        isActive: true
+        isActive: data.isActive !== undefined ? Boolean(data.isActive) : true
       },
       include: { category: true }
     });
@@ -235,15 +261,42 @@ export class InventoryService {
     const updateData: any = {};
     if (data.name !== undefined) updateData.name = data.name;
     if (data.sku !== undefined) updateData.sku = data.sku;
+    if (data.barcode !== undefined) updateData.barcode = data.barcode || null;
     if (data.unitOfMeasure !== undefined) updateData.unitOfMeasure = data.unitOfMeasure;
     if (data.reorderLevel !== undefined) updateData.reorderLevel = Number(data.reorderLevel);
-    if (data.currentStock !== undefined) {
-      updateData.currentStock = Number(data.currentStock);
-      if (data.unitCost !== undefined) {
-        updateData.averageUnitCost = Number(data.unitCost);
-        updateData.totalValue = roundTo2Decimals(Number(data.currentStock) * Number(data.unitCost));
-      }
+    if (data.category !== undefined || data.categoryId !== undefined) {
+      updateData.categoryId = await this.resolveCategoryId(tenantId, data.category, data.categoryId);
     }
+
+    const nextStock =
+      data.currentStock !== undefined
+        ? Number(data.currentStock)
+        : data.initialQuantity !== undefined
+        ? Number(data.initialQuantity)
+        : Number(existing.currentStock);
+
+    const nextCost =
+      data.unitCost !== undefined
+        ? Number(data.unitCost)
+        : data.averageUnitCost !== undefined
+        ? Number(data.averageUnitCost)
+        : Number(existing.averageUnitCost);
+
+    if (data.currentStock !== undefined || data.initialQuantity !== undefined) {
+      updateData.currentStock = nextStock;
+    }
+    if (data.unitCost !== undefined || data.averageUnitCost !== undefined) {
+      updateData.averageUnitCost = nextCost;
+    }
+    if (
+      data.currentStock !== undefined ||
+      data.initialQuantity !== undefined ||
+      data.unitCost !== undefined ||
+      data.averageUnitCost !== undefined
+    ) {
+      updateData.totalValue = roundTo2Decimals(nextStock * nextCost);
+    }
+
     if (data.isActive !== undefined) updateData.isActive = Boolean(data.isActive);
 
     return prisma.stockItem.update({

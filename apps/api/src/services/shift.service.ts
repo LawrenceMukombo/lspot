@@ -194,6 +194,70 @@ export class ShiftService {
       take: limit
     });
   }
+
+  async updateShift(
+    tenantId: string,
+    shiftId: string,
+    data: {
+      openingFloat?: number;
+      cashSales?: number;
+      cashCreditCollections?: number;
+      cashExpenses?: number;
+      cashWithdrawals?: number;
+      actualCashCounted?: number | null;
+      varianceExplanation?: string | null;
+      status?: string;
+    }
+  ) {
+    const existing = await prisma.cashierShift.findFirst({ where: { id: shiftId, tenantId } });
+    if (!existing) {
+      throw new Error('Cashier shift not found');
+    }
+
+    const openingFloat = data.openingFloat !== undefined ? roundTo2Decimals(Math.max(0, Number(data.openingFloat))) : Number(existing.openingFloat);
+    const cashSales = data.cashSales !== undefined ? roundTo2Decimals(Math.max(0, Number(data.cashSales))) : Number(existing.cashSales);
+    const cashCreditCollections =
+      data.cashCreditCollections !== undefined
+        ? roundTo2Decimals(Math.max(0, Number(data.cashCreditCollections)))
+        : Number(existing.cashCreditCollections);
+    const cashExpenses = data.cashExpenses !== undefined ? roundTo2Decimals(Math.max(0, Number(data.cashExpenses))) : Number(existing.cashExpenses);
+    const cashWithdrawals =
+      data.cashWithdrawals !== undefined ? roundTo2Decimals(Math.max(0, Number(data.cashWithdrawals))) : Number(existing.cashWithdrawals);
+
+    const expectedCash = roundTo2Decimals(
+      openingFloat + cashSales + cashCreditCollections - cashExpenses - cashWithdrawals
+    );
+
+    const actualCashCounted =
+      data.actualCashCounted !== undefined
+        ? data.actualCashCounted === null
+          ? null
+          : roundTo2Decimals(Math.max(0, Number(data.actualCashCounted)))
+        : existing.actualCashCounted !== null
+        ? Number(existing.actualCashCounted)
+        : null;
+
+    const variance = actualCashCounted !== null ? roundTo2Decimals(actualCashCounted - expectedCash) : existing.variance !== null ? Number(existing.variance) : null;
+
+    return prisma.cashierShift.update({
+      where: { id: existing.id },
+      data: {
+        openingFloat,
+        cashSales,
+        cashCreditCollections,
+        cashExpenses,
+        cashWithdrawals,
+        expectedCash,
+        actualCashCounted,
+        variance,
+        ...(data.varianceExplanation !== undefined ? { varianceExplanation: data.varianceExplanation || null } : {}),
+        ...(data.status ? { status: data.status } : {})
+      },
+      include: {
+        cashier: { select: { fullName: true, username: true } }
+      }
+    });
+  }
 }
 
 export const shiftService = new ShiftService();

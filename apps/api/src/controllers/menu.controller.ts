@@ -21,11 +21,26 @@ menuRouter.post(
   requireRole(UserRole.OWNER, UserRole.MANAGER),
   async (req: RequestWithUser, res: Response) => {
     try {
-      const { name, description } = req.body;
-      const category = await menuService.createCategory(req.user!.tenantId, name, description);
+      const { name, description, sortOrder } = req.body;
+      const category = await menuService.createCategory(req.user!.tenantId, name, description, sortOrder);
       return res.status(201).json({ success: true, data: category });
     } catch (err: any) {
       return res.status(500).json({ success: false, message: err.message });
+    }
+  }
+);
+
+menuRouter.put(
+  '/categories/:id',
+  authenticate,
+  requireRole(UserRole.OWNER, UserRole.MANAGER),
+  async (req: RequestWithUser, res: Response) => {
+    try {
+      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const updated = await menuService.updateCategory(req.user!.tenantId, id, req.body);
+      return res.json({ success: true, data: updated });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
     }
   }
 );

@@ -29,6 +29,61 @@ export function InvoicesView() {
   const [targetCustomerId, setTargetCustomerId] = useState('');
   const [targetDate, setTargetDate] = useState(new Date().toISOString().split('T')[0]);
 
+  // Edit Invoice modal
+  const [editingInvoice, setEditingInvoice] = useState<any | null>(null);
+  const [invForm, setInvForm] = useState({
+    invoiceNumber: '',
+    customerId: '',
+    invoiceType: 'CONSOLIDATED',
+    issueDate: '',
+    dueDate: '',
+    totalAmount: 0,
+    amountPaid: 0,
+    status: 'ISSUED',
+    notes: ''
+  });
+
+  const openEditInvoice = (inv: any) => {
+    setEditingInvoice(inv);
+    setInvForm({
+      invoiceNumber: inv.invoiceNumber || '',
+      customerId: inv.customerId || inv.customer?.id || '',
+      invoiceType: inv.invoiceType || 'CONSOLIDATED',
+      issueDate: inv.issueDate ? new Date(inv.issueDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+      dueDate: inv.dueDate ? new Date(inv.dueDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+      totalAmount: Number(inv.totalAmount || 0),
+      amountPaid: Number(inv.amountPaid || 0),
+      status: inv.status || 'ISSUED',
+      notes: inv.notes || ''
+    });
+  };
+
+  const handleSaveInvoice = async () => {
+    if (!editingInvoice) return;
+    try {
+      await apiRequest(`/invoices/${editingInvoice.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          invoiceNumber: invForm.invoiceNumber,
+          customerId: invForm.customerId,
+          invoiceType: invForm.invoiceType,
+          issueDate: invForm.issueDate,
+          dueDate: invForm.dueDate,
+          subtotal: Number(invForm.totalAmount),
+          totalAmount: Number(invForm.totalAmount),
+          amountPaid: Number(invForm.amountPaid),
+          status: invForm.status,
+          notes: invForm.notes || null
+        })
+      });
+      toast.success(`Invoice ${invForm.invoiceNumber} updated.`, 'Invoice Updated');
+      setEditingInvoice(null);
+      loadInvoices();
+    } catch (err: any) {
+      toast.critical(`Failed to update invoice: ${err.message}`, 'Invoice Update Error');
+    }
+  };
+
   useEffect(() => {
     loadInvoices();
     loadCustomers();
@@ -210,7 +265,141 @@ export function InvoicesView() {
         title="Customer Invoices Registry"
         searchPlaceholder="Search invoice # or customer..."
         isLoading={isLoading}
+        onRowClick={(row) => setSelectedInvoice(row)}
+        onEditRow={openEditInvoice}
+        canEdit={true}
       />
+
+      {/* Edit Invoice Modal */}
+      {editingInvoice && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <h3 className="font-bold text-lg text-white">Edit Invoice — {editingInvoice.invoiceNumber}</h3>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Invoice Number</label>
+                  <input
+                    type="text"
+                    value={invForm.invoiceNumber}
+                    onChange={(e) => setInvForm({ ...invForm, invoiceNumber: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-amber-400 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Invoice Type</label>
+                  <select
+                    value={invForm.invoiceType}
+                    onChange={(e) => setInvForm({ ...invForm, invoiceType: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200"
+                  >
+                    <option value="SINGLE">SINGLE</option>
+                    <option value="CONSOLIDATED">CONSOLIDATED</option>
+                    <option value="MONTHLY">MONTHLY</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Billed Customer</label>
+                <select
+                  value={invForm.customerId}
+                  onChange={(e) => setInvForm({ ...invForm, customerId: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200"
+                >
+                  {customers.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Issue Date</label>
+                  <input
+                    type="date"
+                    value={invForm.issueDate}
+                    onChange={(e) => setInvForm({ ...invForm, issueDate: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Due Date</label>
+                  <input
+                    type="date"
+                    value={invForm.dueDate}
+                    onChange={(e) => setInvForm({ ...invForm, dueDate: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Total (ZMW)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={invForm.totalAmount}
+                    onChange={(e) => setInvForm({ ...invForm, totalAmount: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-100 font-mono font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Paid (ZMW)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={invForm.amountPaid}
+                    onChange={(e) => setInvForm({ ...invForm, amountPaid: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-emerald-400 font-mono font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Status</label>
+                  <select
+                    value={invForm.status}
+                    onChange={(e) => setInvForm({ ...invForm, status: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200"
+                  >
+                    <option value="ISSUED">ISSUED</option>
+                    <option value="PARTIAL">PARTIAL</option>
+                    <option value="PAID">PAID</option>
+                    <option value="OVERDUE">OVERDUE</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Invoice Description / Notes</label>
+                <textarea
+                  rows={2}
+                  value={invForm.notes}
+                  onChange={(e) => setInvForm({ ...invForm, notes: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                onClick={() => setEditingInvoice(null)}
+                className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveInvoice}
+                className="flex-1 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-bold rounded-xl"
+              >
+                Save Invoice
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Consolidate Modal */}
       {showConsolidateModal && (

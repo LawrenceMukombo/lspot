@@ -9,13 +9,31 @@ export class MenuService {
     });
   }
 
-  async createCategory(tenantId: string, name: string, description?: string) {
+  async createCategory(tenantId: string, name: string, description?: string, sortOrder?: number) {
     return prisma.menuCategory.create({
       data: {
         tenantId,
         name,
-        description
+        description,
+        ...(sortOrder !== undefined ? { sortOrder: Number(sortOrder) } : {})
       }
+    });
+  }
+
+  async updateCategory(tenantId: string, id: string, data: { name?: string; description?: string | null; sortOrder?: number; isActive?: boolean }) {
+    const existing = await prisma.menuCategory.findFirst({ where: { id, tenantId } });
+    if (!existing) {
+      throw new Error('Menu category not found');
+    }
+    const updateData: any = {};
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.description !== undefined) updateData.description = data.description || null;
+    if (data.sortOrder !== undefined) updateData.sortOrder = Number(data.sortOrder);
+    if (data.isActive !== undefined) updateData.isActive = Boolean(data.isActive);
+
+    return prisma.menuCategory.update({
+      where: { id: existing.id },
+      data: updateData
     });
   }
 
@@ -77,14 +95,15 @@ export class MenuService {
     }
 
     const updateData: any = {};
-    for (const key of ['name', 'description', 'imageUrl', 'categoryId', 'portionSize', 'sku', 'isAvailable'] as const) {
-      if (data[key] !== undefined && data[key] !== null) updateData[key] = data[key];
+    for (const key of ['name', 'description', 'imageUrl', 'categoryId', 'portionSize', 'sku', 'recipeId', 'isAvailable'] as const) {
+      if (data[key] !== undefined) updateData[key] = data[key];
     }
     if (data.sellingPrice !== undefined) updateData.sellingPrice = Number(data.sellingPrice);
+    if (data.estimatedCost !== undefined) updateData.estimatedCost = Number(data.estimatedCost);
     return prisma.menuItem.update({
       where: { id: existing.id },
       data: updateData,
-      include: { category: true }
+      include: { category: true, recipe: true }
     });
   }
 

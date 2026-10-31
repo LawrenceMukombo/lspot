@@ -58,7 +58,7 @@ export function SettingsView() {
   ]);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState<CategoryItem | null>(null);
-  const [categoryForm, setCategoryForm] = useState({ name: '', description: '', sortOrder: 1 });
+  const [categoryForm, setCategoryForm] = useState({ name: '', description: '', sortOrder: 1, isActive: true });
   const [isSavingCategory, setIsSavingCategory] = useState(false);
 
   // Units of Measure reference
@@ -286,7 +286,7 @@ export function SettingsView() {
 
   const openAddCategory = () => {
     setEditingCategory(null);
-    setCategoryForm({ name: '', description: '', sortOrder: categories.length + 1 });
+    setCategoryForm({ name: '', description: '', sortOrder: categories.length + 1, isActive: true });
     setShowCategoryModal(true);
   };
 
@@ -295,7 +295,8 @@ export function SettingsView() {
     setCategoryForm({
       name: cat.name,
       description: cat.description || '',
-      sortOrder: cat.sortOrder || 1
+      sortOrder: cat.sortOrder || 1,
+      isActive: cat.isActive ?? true
     });
     setShowCategoryModal(true);
   };
@@ -308,12 +309,27 @@ export function SettingsView() {
     setIsSavingCategory(true);
     try {
       if (editingCategory) {
-        // Optimistic local update
-        setCategories((prev) =>
-          prev.map((c) =>
-            c.id === editingCategory.id ? { ...c, ...categoryForm } : c
-          )
-        );
+        try {
+          const updated = await apiRequest(`/menu/categories/${editingCategory.id}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              name: categoryForm.name.trim(),
+              description: categoryForm.description.trim() || null,
+              sortOrder: Number(categoryForm.sortOrder),
+              isActive: Boolean(categoryForm.isActive)
+            })
+          });
+          if (updated) {
+            setCategories((prev) => prev.map((c) => (c.id === editingCategory.id ? updated : c)));
+          }
+        } catch {
+          setCategories((prev) =>
+            prev.map((c) =>
+              c.id === editingCategory.id ? { ...c, ...categoryForm } : c
+            )
+          );
+        }
+        toast.success(`Category "${categoryForm.name}" updated.`, 'Category Updated');
       } else {
         const payload = {
           name: categoryForm.name.trim(),
@@ -598,11 +614,19 @@ export function SettingsView() {
             </div>
             <div>
               <label className={labelCls}>Primary Operating Currency</label>
-              <input className={`${inputCls} font-mono`} value={profile.currency} readOnly disabled />
+              <input
+                className={`${inputCls} font-mono`}
+                value={profile.currency}
+                onChange={(e) => setProfile({ ...profile, currency: e.target.value })}
+              />
             </div>
             <div>
               <label className={labelCls}>Operating Timezone</label>
-              <input className={`${inputCls} font-mono`} value={profile.timezone} readOnly disabled />
+              <input
+                className={`${inputCls} font-mono`}
+                value={profile.timezone}
+                onChange={(e) => setProfile({ ...profile, timezone: e.target.value })}
+              />
             </div>
             <div>
               <label className={labelCls}>ZRA Taxpayer TPIN</label>
@@ -661,11 +685,38 @@ export function SettingsView() {
               />
             </div>
             <div>
+              <label className={labelCls}>Operating Hours Start</label>
+              <input
+                type="time"
+                className={`${inputCls} font-mono`}
+                value={profile.operatingHoursStart}
+                onChange={(e) => setProfile({ ...profile, operatingHoursStart: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className={labelCls}>Operating Hours End</label>
+              <input
+                type="time"
+                className={`${inputCls} font-mono`}
+                value={profile.operatingHoursEnd}
+                onChange={(e) => setProfile({ ...profile, operatingHoursEnd: e.target.value })}
+              />
+            </div>
+            <div>
               <label className={labelCls}>Support Phone</label>
               <input
                 className={inputCls}
                 value={profile.contactPhone}
                 onChange={(e) => setProfile({ ...profile, contactPhone: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className={labelCls}>Contact Email</label>
+              <input
+                type="email"
+                className={inputCls}
+                value={profile.contactEmail}
+                onChange={(e) => setProfile({ ...profile, contactEmail: e.target.value })}
               />
             </div>
           </div>
@@ -1519,6 +1570,16 @@ export function SettingsView() {
             onChange={(e) => setCategoryForm({ ...categoryForm, sortOrder: Number(e.target.value) })}
           />
         </div>
+
+        <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 pt-1">
+          <input
+            type="checkbox"
+            checked={!!categoryForm.isActive}
+            onChange={(e) => setCategoryForm({ ...categoryForm, isActive: e.target.checked })}
+            className="accent-amber-500"
+          />
+          Active category on menu & POS
+        </label>
       </FormModal>
     </div>
   );

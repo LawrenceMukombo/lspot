@@ -18,13 +18,16 @@ export function FinanceView() {
   const [dashboard, setDashboard] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Modal
+  // Modal (Create / Edit)
   const [showAddExpense, setShowAddExpense] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<any | null>(null);
   const [expCategoryId, setExpCategoryId] = useState('');
   const [expAmount, setExpAmount] = useState(250);
   const [expPayee, setExpPayee] = useState('');
   const [expDescription, setExpDescription] = useState('');
   const [expMethod, setExpMethod] = useState('CASH');
+  const [expReceiptNumber, setExpReceiptNumber] = useState('');
+  const [expDate, setExpDate] = useState(() => new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
     loadFinance();
@@ -59,27 +62,63 @@ export function FinanceView() {
     }
   };
 
+  const openCreateExpense = () => {
+    setEditingExpense(null);
+    setExpCategoryId(categories[0]?.id || 'exp-002');
+    setExpAmount(250);
+    setExpPayee('');
+    setExpDescription('');
+    setExpMethod('CASH');
+    setExpReceiptNumber('');
+    setExpDate(new Date().toISOString().split('T')[0]);
+    setShowAddExpense(true);
+  };
+
+  const openEditExpense = (row: any) => {
+    setEditingExpense(row);
+    setExpCategoryId(row.categoryId || row.category?.id || categories[0]?.id || 'exp-002');
+    setExpAmount(Number(row.amount || 0));
+    setExpPayee(row.payee || '');
+    setExpDescription(row.description || '');
+    setExpMethod(row.paymentMethod || 'CASH');
+    setExpReceiptNumber(row.receiptNumber || '');
+    setExpDate(row.expenseDate ? new Date(row.expenseDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
+    setShowAddExpense(true);
+  };
+
   const handleRecordExpense = async () => {
     if (!expPayee || !expDescription) {
       toast.warning('Please fill in both Payee and Expense Description.', 'Missing Expense Details');
       return;
     }
+    const payload = {
+      categoryId: expCategoryId || 'exp-002',
+      amount: Number(expAmount),
+      payee: expPayee,
+      description: expDescription,
+      paymentMethod: expMethod,
+      receiptNumber: expReceiptNumber || null,
+      expenseDate: expDate
+    };
     try {
-      await apiRequest('/finance/expenses', {
-        method: 'POST',
-        body: JSON.stringify({
-          categoryId: expCategoryId || 'exp-002',
-          amount: Number(expAmount),
-          payee: expPayee,
-          description: expDescription,
-          paymentMethod: expMethod
-        })
-      });
+      if (editingExpense) {
+        await apiRequest(`/finance/expenses/${editingExpense.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload)
+        });
+        toast.success(`Updated operating expense for ${expPayee}.`, 'Expense Updated');
+      } else {
+        await apiRequest('/finance/expenses', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+        toast.success(`Operating expense of ${formatZMW(Number(expAmount))} paid to ${expPayee} recorded.`, 'Expense Recorded');
+      }
       setShowAddExpense(false);
+      setEditingExpense(null);
       loadFinance();
-      toast.success(`Operating expense of ${formatZMW(Number(expAmount))} paid to ${expPayee} recorded.`, 'Expense Recorded');
     } catch (err: any) {
-      toast.critical(`Failed to record expense: ${err.message}`, 'Expense Recording Error');
+      toast.critical(`Failed to save expense: ${err.message}`, 'Expense Save Error');
     }
   };
 
@@ -109,7 +148,7 @@ export function FinanceView() {
         </div>
 
         <button
-          onClick={() => setShowAddExpense(true)}
+          onClick={openCreateExpense}
           className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm rounded-xl transition shadow-lg shadow-amber-500/20"
         >
           <PlusCircle className="w-4 h-4" />
@@ -146,15 +185,20 @@ export function FinanceView() {
         title="Operating Expense Records"
         searchPlaceholder="Search expenses by payee or description..."
         isLoading={isLoading}
+        onRowClick={openEditExpense}
+        onEditRow={openEditExpense}
+        canEdit={true}
       />
 
-      {/* Record Expense Modal */}
+      {/* Record / Edit Expense Modal */}
       {showAddExpense && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
-            <h3 className="font-bold text-lg text-white">Record Restaurant Operating Expense</h3>
+            <h3 className="font-bold text-lg text-white">
+              {editingExpense ? 'Edit Operating Expense' : 'Record Restaurant Operating Expense'}
+            </h3>
             <p className="text-xs text-slate-400">
-              Direct cash or bank expenditure for cooking gas, power, transport, or supplies.
+              {editingExpense ? 'Update all expense fields, date, receipt reference, and payment method.' : 'Direct cash or bank expenditure for cooking gas, power, transport, or supplies.'}
             </p>
 
             <div className="space-y-3">
@@ -177,7 +221,8 @@ export function FinanceView() {
                   <label className="text-xs text-slate-400 block mb-1">Amount (ZMW)</label>
                   <input
                     type="number"
-                    min="1"
+                    min="0"
+                    step="0.01"
                     value={expAmount}
                     onChange={(e) => setExpAmount(Number(e.target.value))}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500 font-mono text-rose-400 font-bold"
@@ -195,6 +240,28 @@ export function FinanceView() {
                     <option value="MTN_MOMO">MTN MoMo</option>
                     <option value="BANK_TRANSFER">Bank Account</option>
                   </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Expense Date</label>
+                  <input
+                    type="date"
+                    value={expDate}
+                    onChange={(e) => setExpDate(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Receipt / Voucher #</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. VCH-102"
+                    value={expReceiptNumber}
+                    onChange={(e) => setExpReceiptNumber(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:border-amber-500"
+                  />
                 </div>
               </div>
 
@@ -223,7 +290,7 @@ export function FinanceView() {
 
             <div className="flex items-center gap-3 pt-2">
               <button
-                onClick={() => setShowAddExpense(false)}
+                onClick={() => { setShowAddExpense(false); setEditingExpense(null); }}
                 className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold rounded-xl"
               >
                 Cancel
@@ -232,7 +299,7 @@ export function FinanceView() {
                 onClick={handleRecordExpense}
                 className="flex-1 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-bold rounded-xl shadow-lg shadow-amber-500/20"
               >
-                Save Expense
+                {editingExpense ? 'Update Expense' : 'Save Expense'}
               </button>
             </div>
           </div>

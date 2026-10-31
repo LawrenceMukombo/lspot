@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { UtensilsCrossed, Lock, KeyRound, UserCheck } from 'lucide-react';
 import { Navbar } from './components/Navbar.js';
 import { Sidebar, NavTab } from './components/Sidebar.js';
@@ -8,19 +8,19 @@ import { ThemeProvider } from './context/ThemeContext.js';
 import { apiRequest, setAuthSession } from './api.js';
 import { RESTAURANT_NAME, RESTAURANT_LOCATION } from '@lspot/shared';
 
-const DashboardView = lazy(() => import('./pages/DashboardView.js').then((m) => ({ default: m.DashboardView })));
-const PosView = lazy(() => import('./pages/PosView.js').then((m) => ({ default: m.PosView })));
-const SalesRegisterView = lazy(() => import('./pages/SalesRegisterView.js').then((m) => ({ default: m.SalesRegisterView })));
-const KitchenView = lazy(() => import('./pages/KitchenView.js').then((m) => ({ default: m.KitchenView })));
-const InventoryView = lazy(() => import('./pages/InventoryView.js').then((m) => ({ default: m.InventoryView })));
-const MenuView = lazy(() => import('./pages/MenuView.js').then((m) => ({ default: m.MenuView })));
-const CreditView = lazy(() => import('./pages/CreditView.js').then((m) => ({ default: m.CreditView })));
-const InvoicesView = lazy(() => import('./pages/InvoicesView.js').then((m) => ({ default: m.InvoicesView })));
-const ShiftsView = lazy(() => import('./pages/ShiftsView.js').then((m) => ({ default: m.ShiftsView })));
-const FinanceView = lazy(() => import('./pages/FinanceView.js').then((m) => ({ default: m.FinanceView })));
-const ZraView = lazy(() => import('./pages/ZraView.js').then((m) => ({ default: m.ZraView })));
-const UsersView = lazy(() => import('./pages/UsersView.js').then((m) => ({ default: m.UsersView })));
-const SettingsView = lazy(() => import('./pages/SettingsView.js').then((m) => ({ default: m.SettingsView })));
+import { DashboardView } from './pages/DashboardView.js';
+import { PosView } from './pages/PosView.js';
+import { SalesRegisterView } from './pages/SalesRegisterView.js';
+import { KitchenView } from './pages/KitchenView.js';
+import { InventoryView } from './pages/InventoryView.js';
+import { MenuView } from './pages/MenuView.js';
+import { CreditView } from './pages/CreditView.js';
+import { InvoicesView } from './pages/InvoicesView.js';
+import { ShiftsView } from './pages/ShiftsView.js';
+import { FinanceView } from './pages/FinanceView.js';
+import { ZraView } from './pages/ZraView.js';
+import { UsersView } from './pages/UsersView.js';
+import { SettingsView } from './pages/SettingsView.js';
 
 export function App() {
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');

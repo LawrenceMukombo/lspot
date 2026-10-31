@@ -532,6 +532,127 @@ export class KitchenService {
       return closed;
     });
   }
+
+  async updateRegisterItem(
+    tenantId: string,
+    itemId: string,
+    data: {
+      openingPortions?: number;
+      preparedPortions?: number;
+      soldPortions?: number;
+      wastePortions?: number;
+      staffMealPortions?: number;
+      complimentaryPortions?: number;
+      notes?: string | null;
+    }
+  ) {
+    const existing = await prisma.kitchenRegisterItem.findFirst({
+      where: { id: itemId, register: { tenantId } },
+      include: { register: true }
+    });
+    if (!existing) {
+      throw new Error('Kitchen register item not found');
+    }
+
+    const openingPortions = data.openingPortions !== undefined ? Math.max(0, Number(data.openingPortions)) : existing.openingPortions;
+    const preparedPortions = data.preparedPortions !== undefined ? Math.max(0, Number(data.preparedPortions)) : existing.preparedPortions;
+    const soldPortions = data.soldPortions !== undefined ? Math.max(0, Number(data.soldPortions)) : existing.soldPortions;
+    const wastePortions = data.wastePortions !== undefined ? Math.max(0, Number(data.wastePortions)) : existing.wastePortions;
+    const staffMealPortions = data.staffMealPortions !== undefined ? Math.max(0, Number(data.staffMealPortions)) : existing.staffMealPortions;
+    const complimentaryPortions =
+      data.complimentaryPortions !== undefined ? Math.max(0, Number(data.complimentaryPortions)) : existing.complimentaryPortions;
+
+    const remainingPortions = calculateClosingPreparedPortions({
+      openingPortions,
+      preparedPortions,
+      soldPortions,
+      wastePortions,
+      staffMealPortions,
+      complimentaryPortions
+    });
+
+    return prisma.$transaction(async (tx: any) => {
+      // If preparedPortions was explicitly edited, sync productionBatches for this dish so getTodayRegister stays consistent
+      if (data.preparedPortions !== undefined) {
+        const batches = await tx.productionBatch.findMany({
+          where: { registerId: existing.registerId, menuItemId: existing.menuItemId },
+          orderBy: { createdAt: 'desc' }
+        });
+        const batchSum = batches.reduce((sum: number, b: any) => sum + Number(b.actualPreparedPortions || 0), 0);
+        const diff = preparedPortions - batchSum;
+        if (diff !== 0) {
+          if (batches.length > 0 && Number(batches[0].actualPreparedPortions) + diff >= 0) {
+            await tx.productionBatch.update({
+              where: { id: batches[0].id },
+              data: {
+                actualPreparedPortions: Number(batches[0].actualPreparedPortions) + diff,
+                plannedPortions: Math.max(1, Number(batches[0].actualPreparedPortions) + diff)
+              }
+            });
+          } else if (preparedPortions > 0) {
+            await tx.productionBatch.create({
+              data: {
+                registerId: existing.registerId,
+                menuItemId: existing.menuItemId,
+                plannedPortions: Math.max(1, diff),
+                actualPreparedPortions: Math.max(1, diff),
+                notes: data.notes || 'Manual register adjustment'
+              }
+            });
+          }
+        }
+      }
+
+      return tx.kitchenRegisterItem.update({
+        where: { id: existing.id },
+        data: {
+          openingPortions,
+          preparedPortions,
+          soldPortions,
+          wastePortions,
+          staffMealPortions,
+          complimentaryPortions,
+          remainingPortions,
+          ...(data.notes !== undefined ? { notes: data.notes || null } : {})
+        },
+        include: { menuItem: true }
+      });
+    });
+  }
+
+  async updateProductionBatch(
+    tenantId: string,
+    batchId: string,
+    data: {
+      menuItemId?: string;
+      plannedPortions?: number;
+      actualPreparedPortions?: number;
+      notes?: string | null;
+    }
+  ) {
+    const existing = await prisma.productionBatch.findFirst({
+      where: { id: batchId, register: { tenantId } }
+    });
+    if (!existing) {
+      throw new Error('Cooking batch not found');
+    }
+
+    const updated = await prisma.productionBatch.update({
+      where: { id: existing.id },
+      data: {
+        ...(data.menuItemId ? { menuItemId: data.menuItemId } : {}),
+        ...(data.plannedPortions !== undefined ? { plannedPortions: Math.max(1, Number(data.plannedPortions)) } : {}),
+        ...(data.actualPreparedPortions !== undefined
+          ? { actualPreparedPortions: Math.max(0, Number(data.actualPreparedPortions)) }
+          : {}),
+        ...(data.notes !== undefined ? { notes: data.notes || null } : {})
+      }
+    });
+
+    // Trigger register resync
+    await this.getTodayRegister(tenantId);
+    return updated;
+  }
 }
 
 export const kitchenService = new KitchenService();

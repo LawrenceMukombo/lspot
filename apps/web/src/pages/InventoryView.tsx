@@ -16,11 +16,13 @@ import { toast } from '../components/Toast.js';
 const emptyStockForm = {
   name: '',
   sku: '',
+  barcode: '',
   category: StockCategoryType.RAW_INGREDIENT as string,
   unitOfMeasure: UnitOfMeasure.KILOGRAM as string,
   reorderLevel: 5,
   initialQuantity: 0,
-  unitCost: 0
+  unitCost: 0,
+  isActive: true
 };
 
 export function InventoryView() {
@@ -58,11 +60,28 @@ export function InventoryView() {
   };
 
   const openEdit = (item: any) => {
+    setSelectedItem(item);
+    const catName = String(item.category?.name || '').toLowerCase();
+    let catType: string = StockCategoryType.RAW_INGREDIENT;
+    if (catName.includes('beverage') || catName.includes('drink')) {
+      catType = StockCategoryType.BEVERAGE;
+    } else if (catName.includes('packag')) {
+      catType = StockCategoryType.PACKAGING;
+    } else if (catName.includes('consum')) {
+      catType = StockCategoryType.CONSUMABLES;
+    } else if (catName.includes('kitchen') || catName.includes('suppl')) {
+      catType = StockCategoryType.KITCHEN_SUPPLIES;
+    }
     setStockForm({
-      name: item.name,
-      sku: item.sku,
-      unitOfMeasure: item.unitOfMeasure,
-      reorderLevel: Number(item.reorderLevel)
+      name: item.name || '',
+      sku: item.sku || '',
+      barcode: item.barcode || '',
+      category: catType,
+      unitOfMeasure: item.unitOfMeasure || UnitOfMeasure.KILOGRAM,
+      reorderLevel: Number(item.reorderLevel ?? 0),
+      initialQuantity: Number(item.currentStock ?? 0),
+      unitCost: Number(item.averageUnitCost ?? 0),
+      isActive: item.isActive ?? true
     });
     setStockFormMode('EDIT');
   };
@@ -83,6 +102,7 @@ export function InventoryView() {
           method: 'POST',
           body: JSON.stringify({
             ...stockForm,
+            barcode: stockForm.barcode || null,
             reorderLevel: Number(stockForm.reorderLevel),
             initialQuantity: Number(stockForm.initialQuantity),
             unitCost: Number(stockForm.unitCost)
@@ -95,8 +115,15 @@ export function InventoryView() {
           body: JSON.stringify({
             name: stockForm.name,
             sku: stockForm.sku,
+            barcode: stockForm.barcode || null,
+            category: stockForm.category,
             unitOfMeasure: stockForm.unitOfMeasure,
-            reorderLevel: Number(stockForm.reorderLevel)
+            reorderLevel: Number(stockForm.reorderLevel),
+            currentStock: Number(stockForm.initialQuantity),
+            initialQuantity: Number(stockForm.initialQuantity),
+            unitCost: Number(stockForm.unitCost),
+            averageUnitCost: Number(stockForm.unitCost),
+            isActive: Boolean(stockForm.isActive)
           })
         });
         toast.success(`Stock item "${stockForm.name}" updated.`, 'Stock Item Updated');
@@ -344,6 +371,8 @@ export function InventoryView() {
           searchPlaceholder="Search stock items or SKU..."
           isLoading={isLoading}
           onRowClick={(row) => setSelectedItem(row)}
+          onEditRow={openEdit}
+          canEdit={true}
         />
       ) : (
         <EnterpriseTable
@@ -449,7 +478,7 @@ export function InventoryView() {
       <FormModal
         open={!!stockFormMode}
         title={stockFormMode === 'CREATE' ? 'New Stock Item' : `Edit ${selectedItem?.name || 'Stock Item'}`}
-        subtitle={stockFormMode === 'CREATE' ? 'Opening balance is recorded at the given unit cost.' : 'Quantities change only via Receive, Issue or Physical Count to keep the ledger auditable.'}
+        subtitle={stockFormMode === 'CREATE' ? 'Opening balance is recorded at the given unit cost.' : 'Edit all master data, stock quantity, unit cost, category, barcode, and reorder thresholds.'}
         onClose={() => setStockFormMode(null)}
         onSubmit={handleSaveStockItem}
         submitting={saving}
@@ -465,38 +494,44 @@ export function InventoryView() {
             <input id="stock-sku" className={`${inputCls} font-mono`} value={stockForm.sku} onChange={(e) => setStockForm({ ...stockForm, sku: e.target.value.toUpperCase() })} />
           </div>
           <div>
-            <label htmlFor="stock-uom" className={labelCls}>Unit of measure</label>
-            <select id="stock-uom" className={inputCls} value={stockForm.unitOfMeasure} onChange={(e) => setStockForm({ ...stockForm, unitOfMeasure: e.target.value })}>
-              {Object.values(UnitOfMeasure).map((u) => <option key={u} value={u}>{u}</option>)}
-            </select>
+            <label htmlFor="stock-barcode" className={labelCls}>Barcode (optional)</label>
+            <input id="stock-barcode" className={`${inputCls} font-mono`} placeholder="e.g. 6001234567890" value={stockForm.barcode || ''} onChange={(e) => setStockForm({ ...stockForm, barcode: e.target.value })} />
           </div>
         </div>
-        {stockFormMode === 'CREATE' && (
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <label htmlFor="stock-category" className={labelCls}>Category type</label>
             <select id="stock-category" className={inputCls} value={stockForm.category} onChange={(e) => setStockForm({ ...stockForm, category: e.target.value })}>
               {Object.values(StockCategoryType).map((c) => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
             </select>
           </div>
-        )}
+          <div>
+            <label htmlFor="stock-uom" className={labelCls}>Unit of measure</label>
+            <select id="stock-uom" className={inputCls} value={stockForm.unitOfMeasure} onChange={(e) => setStockForm({ ...stockForm, unitOfMeasure: e.target.value })}>
+              {Object.values(UnitOfMeasure).map((u) => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+        </div>
         <div className="grid grid-cols-3 gap-3">
           <div>
             <label htmlFor="stock-reorder" className={labelCls}>Reorder level</label>
-            <input id="stock-reorder" type="number" min="0" className={inputCls} value={stockForm.reorderLevel} onChange={(e) => setStockForm({ ...stockForm, reorderLevel: e.target.value })} />
+            <input id="stock-reorder" type="number" min="0" step="0.01" className={inputCls} value={stockForm.reorderLevel} onChange={(e) => setStockForm({ ...stockForm, reorderLevel: e.target.value })} />
           </div>
-          {stockFormMode === 'CREATE' && (
-            <>
-              <div>
-                <label htmlFor="stock-opening" className={labelCls}>Opening qty</label>
-                <input id="stock-opening" type="number" min="0" className={inputCls} value={stockForm.initialQuantity} onChange={(e) => setStockForm({ ...stockForm, initialQuantity: e.target.value })} />
-              </div>
-              <div>
-                <label htmlFor="stock-cost" className={labelCls}>Unit cost (K)</label>
-                <input id="stock-cost" type="number" min="0" step="0.01" className={inputCls} value={stockForm.unitCost} onChange={(e) => setStockForm({ ...stockForm, unitCost: e.target.value })} />
-              </div>
-            </>
-          )}
+          <div>
+            <label htmlFor="stock-opening" className={labelCls}>{stockFormMode === 'CREATE' ? 'Opening qty' : 'Current stock'}</label>
+            <input id="stock-opening" type="number" min="0" step="0.01" className={inputCls} value={stockForm.initialQuantity} onChange={(e) => setStockForm({ ...stockForm, initialQuantity: e.target.value })} />
+          </div>
+          <div>
+            <label htmlFor="stock-cost" className={labelCls}>Unit cost (K)</label>
+            <input id="stock-cost" type="number" min="0" step="0.01" className={inputCls} value={stockForm.unitCost} onChange={(e) => setStockForm({ ...stockForm, unitCost: e.target.value })} />
+          </div>
         </div>
+        {stockFormMode === 'EDIT' && (
+          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 pt-1">
+            <input type="checkbox" checked={!!stockForm.isActive} onChange={(e) => setStockForm({ ...stockForm, isActive: e.target.checked })} className="accent-amber-500" />
+            Active stock item in inventory ledger
+          </label>
+        )}
       </FormModal>
 
       {/* Physical Count Adjustment */}

@@ -474,27 +474,90 @@ export class PosService {
     });
   }
 
-  async updateSale(saleId: string, tenantId: string, data: { orderType?: string; tableNumber?: string; notes?: string }) {
+  async updateSale(
+    saleId: string,
+    tenantId: string,
+    data: {
+      orderType?: string;
+      tableNumber?: string | null;
+      customerId?: string | null;
+      paymentStatus?: string;
+      discountAmount?: number;
+      paymentMethod?: string;
+      paymentReference?: string | null;
+      notes?: string | null;
+      items?: Array<{ id?: string; menuItemId?: string; quantity: number; unitPrice: number; notes?: string | null }>;
+    }
+  ) {
     const sale = await prisma.sale.findFirst({
-      where: { id: saleId, tenantId }
+      where: { id: saleId, tenantId },
+      include: { items: true, payments: true }
     });
     if (!sale) {
       throw new Error('Sale transaction not found');
     }
 
-    return prisma.sale.update({
-      where: { id: saleId },
-      data: {
-        ...(data.orderType ? { orderType: data.orderType } : {}),
-        ...(data.tableNumber !== undefined ? { tableNumber: data.tableNumber } : {}),
-        ...(data.notes !== undefined ? { notes: data.notes } : {})
-      },
-      include: {
-        items: { include: { menuItem: { include: { category: true } } } },
-        payments: true,
-        cashier: { select: { fullName: true, username: true, role: true } },
-        customer: { select: { name: true, phone: true } }
+    return prisma.$transaction(async (tx: any) => {
+      let nextSubtotal = Number(sale.subtotal);
+      if (Array.isArray(data.items) && data.items.length > 0) {
+        let computedSub = 0;
+        for (const itemInput of data.items) {
+          const qty = Math.max(1, Number(itemInput.quantity || 1));
+          const price = Math.max(0, Number(itemInput.unitPrice || 0));
+          const lineSub = roundTo2Decimals(qty * price);
+          computedSub = roundTo2Decimals(computedSub + lineSub);
+          if (itemInput.id) {
+            await tx.saleItem.update({
+              where: { id: itemInput.id },
+              data: {
+                quantity: qty,
+                unitPrice: price,
+                subtotal: lineSub,
+                ...(itemInput.notes !== undefined ? { notes: itemInput.notes || null } : {})
+              }
+            });
+          }
+        }
+        nextSubtotal = computedSub;
       }
+
+      const nextDiscount =
+        data.discountAmount !== undefined
+          ? Math.max(0, Math.min(nextSubtotal, roundTo2Decimals(Number(data.discountAmount))))
+          : Number(sale.discountAmount);
+      const nextTotal = roundTo2Decimals(Math.max(0, nextSubtotal - nextDiscount));
+
+      if (sale.payments.length > 0 && (data.paymentMethod || data.paymentReference !== undefined || nextTotal !== Number(sale.totalAmount))) {
+        const firstPayment = sale.payments[0];
+        await tx.payment.update({
+          where: { id: firstPayment.id },
+          data: {
+            ...(data.paymentMethod ? { paymentMethod: data.paymentMethod } : {}),
+            ...(data.paymentReference !== undefined ? { reference: data.paymentReference || null } : {}),
+            ...(sale.payments.length === 1 ? { amount: nextTotal } : {})
+          }
+        });
+      }
+
+      return tx.sale.update({
+        where: { id: saleId },
+        data: {
+          ...(data.orderType ? { orderType: data.orderType } : {}),
+          ...(data.tableNumber !== undefined ? { tableNumber: data.tableNumber || null } : {}),
+          ...(data.customerId !== undefined ? { customerId: data.customerId || null } : {}),
+          ...(data.paymentStatus ? { paymentStatus: data.paymentStatus } : {}),
+          ...(data.notes !== undefined ? { notes: data.notes || null } : {}),
+          subtotal: nextSubtotal,
+          discountAmount: nextDiscount,
+          totalAmount: nextTotal
+        },
+        include: {
+          items: { include: { menuItem: { include: { category: true } } } },
+          payments: true,
+          cashier: { select: { fullName: true, username: true, role: true } },
+          customer: { select: { name: true, phone: true } }
+        }
+      });
     });
   }
 

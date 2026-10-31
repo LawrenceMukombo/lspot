@@ -74,7 +74,12 @@ export function SalesRegisterView() {
   const [editTargetSale, setEditTargetSale] = useState<DailySale | null>(null);
   const [editOrderType, setEditOrderType] = useState('DINE_IN');
   const [editTableNumber, setEditTableNumber] = useState('');
+  const [editPaymentStatus, setEditPaymentStatus] = useState('PAID');
+  const [editDiscountAmount, setEditDiscountAmount] = useState(0);
+  const [editPaymentMethod, setEditPaymentMethod] = useState('CASH');
+  const [editPaymentReference, setEditPaymentReference] = useState('');
   const [editNotes, setEditNotes] = useState('');
+  const [editItems, setEditItems] = useState<Array<{ id: string; name: string; quantity: number; unitPrice: number; notes: string }>>([]);
   const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
@@ -141,7 +146,20 @@ export function SalesRegisterView() {
     setEditTargetSale(sale);
     setEditOrderType(sale.orderType || 'DINE_IN');
     setEditTableNumber(sale.tableNumber || '');
+    setEditPaymentStatus(sale.paymentStatus || 'PAID');
+    setEditDiscountAmount(Number(sale.discountAmount || 0));
+    setEditPaymentMethod(sale.payments?.[0]?.paymentMethod || 'CASH');
+    setEditPaymentReference(sale.payments?.[0]?.reference || '');
     setEditNotes(sale.notes || '');
+    setEditItems(
+      (sale.items || []).map((it) => ({
+        id: it.id,
+        name: it.menuItem?.name || 'Item',
+        quantity: Number(it.quantity || 1),
+        unitPrice: Number(it.unitPrice || 0),
+        notes: it.notes || ''
+      }))
+    );
   };
 
   const handleExecuteEdit = async () => {
@@ -154,7 +172,17 @@ export function SalesRegisterView() {
         body: JSON.stringify({
           orderType: editOrderType,
           tableNumber: editTableNumber,
-          notes: editNotes
+          paymentStatus: editPaymentStatus,
+          discountAmount: Number(editDiscountAmount || 0),
+          paymentMethod: editPaymentMethod,
+          paymentReference: editPaymentReference,
+          notes: editNotes,
+          items: editItems.map((it) => ({
+            id: it.id,
+            quantity: Number(it.quantity),
+            unitPrice: Number(it.unitPrice),
+            notes: it.notes || null
+          }))
         })
       });
 
@@ -603,43 +631,151 @@ export function SalesRegisterView() {
         </div>
       )}
 
-      {/* Edit Sale Metadata Modal */}
+      {/* Edit Sale Metadata & Line Items Modal */}
       {editTargetSale && (
         <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
               <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center">
                 <Edit3 className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-bold text-slate-900 text-base">Edit Sale Details</h3>
+                <h3 className="font-bold text-slate-900 text-base">Edit All Sale Fields</h3>
                 <p className="text-xs text-slate-500 font-mono">{editTargetSale.saleNumber}</p>
               </div>
             </div>
 
             <div className="space-y-3 text-xs">
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">Order Type:</label>
-                <select
-                  value={editOrderType}
-                  onChange={(e) => setEditOrderType(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:outline-none focus:border-amber-500"
-                >
-                  <option value="DINE_IN">Dine In</option>
-                  <option value="TAKEAWAY">Takeaway</option>
-                </select>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Order Type:</label>
+                  <select
+                    value={editOrderType}
+                    onChange={(e) => setEditOrderType(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="DINE_IN">Dine In</option>
+                    <option value="TAKEAWAY">Takeaway</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Table Number:</label>
+                  <input
+                    type="text"
+                    value={editTableNumber}
+                    onChange={(e) => setEditTableNumber(e.target.value)}
+                    placeholder="e.g. Table 4"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">Table Number:</label>
-                <input
-                  type="text"
-                  value={editTableNumber}
-                  onChange={(e) => setEditTableNumber(e.target.value)}
-                  placeholder="e.g. Table 4"
-                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-amber-500"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Payment Status:</label>
+                  <select
+                    value={editPaymentStatus}
+                    onChange={(e) => setEditPaymentStatus(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="PAID">PAID</option>
+                    <option value="CREDIT">CREDIT</option>
+                    <option value="REFUNDED">REFUNDED</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Discount Amount (ZMW):</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={editDiscountAmount}
+                    onChange={(e) => setEditDiscountAmount(Number(e.target.value))}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-800 font-mono focus:outline-none focus:border-amber-500"
+                  />
+                </div>
               </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Payment Method:</label>
+                  <select
+                    value={editPaymentMethod}
+                    onChange={(e) => setEditPaymentMethod(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-slate-800 focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="CASH">Cash</option>
+                    <option value="AIRTEL_MONEY">Airtel Money</option>
+                    <option value="MTN_MOMO">MTN MoMo</option>
+                    <option value="CARD">Card</option>
+                    <option value="BANK_TRANSFER">Bank Transfer</option>
+                    <option value="CREDIT">Customer Credit (AR)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Payment Reference:</label>
+                  <input
+                    type="text"
+                    value={editPaymentReference}
+                    onChange={(e) => setEditPaymentReference(e.target.value)}
+                    placeholder="e.g. TXN-001"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-800 font-mono focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              {editItems.length > 0 && (
+                <div className="border-t border-slate-100 pt-2 space-y-2">
+                  <label className="font-bold text-slate-700 block">Line Items (Quantity & Unit Price):</label>
+                  {editItems.map((it, idx) => (
+                    <div key={it.id} className="grid grid-cols-12 gap-2 items-center bg-slate-50 p-2 rounded-lg border border-slate-200">
+                      <span className="col-span-5 font-semibold text-slate-800 truncate">{it.name}</span>
+                      <div className="col-span-3">
+                        <input
+                          type="number"
+                          min="1"
+                          value={it.quantity}
+                          onChange={(e) => {
+                            const val = Math.max(1, Number(e.target.value));
+                            setEditItems((prev) => prev.map((row, i) => (i === idx ? { ...row, quantity: val } : row)));
+                          }}
+                          className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 font-mono"
+                          title="Quantity"
+                        />
+                      </div>
+                      <div className="col-span-4">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          value={it.unitPrice}
+                          onChange={(e) => {
+                            const val = Math.max(0, Number(e.target.value));
+                            setEditItems((prev) => prev.map((row, i) => (i === idx ? { ...row, unitPrice: val } : row)));
+                          }}
+                          className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-800 font-mono"
+                          title="Unit Price (ZMW)"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex justify-between font-bold text-slate-900 pt-1">
+                    <span>Recalculated Net Total:</span>
+                    <span className="font-mono text-amber-700">
+                      {formatZMW(
+                        Math.max(
+                          0,
+                          editItems.reduce((sum, i) => sum + Number(i.quantity) * Number(i.unitPrice), 0) -
+                            Number(editDiscountAmount || 0)
+                        )
+                      )}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="font-bold text-slate-700 block mb-1">Order Notes:</label>

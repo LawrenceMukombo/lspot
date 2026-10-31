@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lspot-pwa-cache-v1.4';
+const CACHE_NAME = 'lspot-pwa-cache-v1.5';
 const APP_SHELL_URLS = [
   '/',
   '/index.html',
@@ -50,7 +50,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Stale-while-revalidate for static assets & app shell
+  // Stale-while-revalidate for static assets & app shell (never return index.html for missing JS/CSS assets)
   event.respondWith(
     caches.match(request).then((cachedResponse) => {
       const fetchPromise = fetch(request)
@@ -61,7 +61,7 @@ self.addEventListener('fetch', (event) => {
           }
           return networkResponse;
         })
-        .catch(() => cachedResponse || caches.match('/index.html'));
+        .catch(() => cachedResponse);
 
       return cachedResponse || fetchPromise;
     })

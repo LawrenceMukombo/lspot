@@ -130,6 +130,55 @@ export class InvoiceService {
       shareUrl
     };
   }
+
+  async updateInvoice(
+    tenantId: string,
+    id: string,
+    data: {
+      invoiceNumber?: string;
+      customerId?: string;
+      invoiceType?: string;
+      issueDate?: string;
+      dueDate?: string;
+      subtotal?: number;
+      totalAmount?: number;
+      amountPaid?: number;
+      status?: string;
+      notes?: string | null;
+    }
+  ) {
+    const existing = await prisma.invoice.findFirst({ where: { id, tenantId } });
+    if (!existing) {
+      throw new Error('Invoice not found');
+    }
+
+    const updateData: any = {};
+    if (data.invoiceNumber !== undefined && data.invoiceNumber.trim()) updateData.invoiceNumber = data.invoiceNumber.trim();
+    if (data.customerId !== undefined && data.customerId.trim()) updateData.customerId = data.customerId.trim();
+    if (data.invoiceType !== undefined) updateData.invoiceType = data.invoiceType;
+    if (data.issueDate) {
+      const d = new Date(data.issueDate);
+      if (!isNaN(d.getTime())) updateData.issueDate = d;
+    }
+    if (data.dueDate) {
+      const d = new Date(data.dueDate);
+      if (!isNaN(d.getTime())) updateData.dueDate = d;
+    }
+    if (data.subtotal !== undefined) updateData.subtotal = roundTo2Decimals(Math.max(0, Number(data.subtotal)));
+    if (data.totalAmount !== undefined) {
+      updateData.totalAmount = roundTo2Decimals(Math.max(0, Number(data.totalAmount)));
+      if (data.subtotal === undefined) updateData.subtotal = updateData.totalAmount;
+    }
+    if (data.amountPaid !== undefined) updateData.amountPaid = roundTo2Decimals(Math.max(0, Number(data.amountPaid)));
+    if (data.status !== undefined) updateData.status = data.status;
+    if (data.notes !== undefined) updateData.notes = data.notes || null;
+
+    return prisma.invoice.update({
+      where: { id: existing.id },
+      data: updateData,
+      include: { customer: true, payments: true }
+    });
+  }
 }
 
 export const invoiceService = new InvoiceService();

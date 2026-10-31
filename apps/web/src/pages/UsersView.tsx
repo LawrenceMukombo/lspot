@@ -327,6 +327,7 @@ export function UsersView() {
           method: 'PUT',
           body: JSON.stringify({
             fullName,
+            username,
             email,
             phone,
             role,
@@ -805,9 +806,8 @@ export function UsersView() {
                     type="text"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    disabled={!!editingUser}
                     placeholder="e.g. kzimba"
-                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus:outline-none focus:border-amber-500 disabled:opacity-50"
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus:outline-none focus:border-amber-500"
                   />
                 </div>
               </div>

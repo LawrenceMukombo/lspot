@@ -384,6 +384,7 @@ export class FinanceService {
           description: data.description,
           paymentMethod,
           receiptNumber: data.receiptNumber || null,
+          ...(data.expenseDate ? { expenseDate: new Date(data.expenseDate) } : {}),
           approvedById: approvedById || null
         },
         include: { category: true }
@@ -414,6 +415,50 @@ export class FinanceService {
       }
 
       return expense;
+    });
+  }
+
+  async updateExpense(
+    tenantId: string,
+    id: string,
+    data: {
+      categoryId?: string;
+      amount?: number;
+      payee?: string;
+      description?: string;
+      paymentMethod?: string;
+      receiptNumber?: string | null;
+      expenseDate?: string | null;
+    }
+  ) {
+    const existing = await prisma.expense.findFirst({
+      where: { id, tenantId }
+    });
+    if (!existing) {
+      throw new Error('Operating expense record not found');
+    }
+
+    const updateData: any = {};
+    if (data.categoryId) {
+      const cat = await prisma.expenseCategory.findFirst({ where: { id: data.categoryId, tenantId } });
+      if (cat) updateData.categoryId = cat.id;
+    }
+    if (data.amount !== undefined) updateData.amount = roundTo2Decimals(Math.max(0, Number(data.amount)));
+    if (data.payee !== undefined) updateData.payee = data.payee;
+    if (data.description !== undefined) updateData.description = data.description;
+    if (data.paymentMethod !== undefined) updateData.paymentMethod = data.paymentMethod;
+    if (data.receiptNumber !== undefined) updateData.receiptNumber = data.receiptNumber || null;
+    if (data.expenseDate) {
+      const parsedDate = new Date(data.expenseDate);
+      if (!isNaN(parsedDate.getTime())) {
+        updateData.expenseDate = parsedDate;
+      }
+    }
+
+    return prisma.expense.update({
+      where: { id: existing.id },
+      data: updateData,
+      include: { category: true }
     });
   }
 }

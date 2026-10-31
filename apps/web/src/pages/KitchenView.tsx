@@ -132,6 +132,91 @@ export function KitchenView() {
   // Click-to-inspect detail drawer
   const [selectedItem, setSelectedItem] = useState<any>(null);
 
+  // Full Edit Modals for Register Item & Cooking Batch
+  const [editingRegisterItem, setEditingRegisterItem] = useState<any>(null);
+  const [regItemForm, setRegItemForm] = useState({
+    openingPortions: 0,
+    preparedPortions: 0,
+    soldPortions: 0,
+    wastePortions: 0,
+    staffMealPortions: 0,
+    complimentaryPortions: 0,
+    notes: ''
+  });
+  const [editingBatch, setEditingBatch] = useState<any>(null);
+  const [editBatchForm, setEditBatchForm] = useState({
+    menuItemId: '',
+    plannedPortions: 20,
+    actualPreparedPortions: 20,
+    notes: ''
+  });
+
+  const openEditRegisterItem = (item: any) => {
+    setEditingRegisterItem(item);
+    setRegItemForm({
+      openingPortions: Number(item.openingPortions ?? 0),
+      preparedPortions: Number(item.preparedPortions ?? 0),
+      soldPortions: Number(item.soldPortions ?? 0),
+      wastePortions: Number(item.wastePortions ?? 0),
+      staffMealPortions: Number(item.staffMealPortions ?? 0),
+      complimentaryPortions: Number(item.complimentaryPortions ?? 0),
+      notes: item.notes || ''
+    });
+  };
+
+  const handleSaveRegisterItem = async () => {
+    if (!editingRegisterItem) return;
+    try {
+      await apiRequest(`/kitchen/items/${editingRegisterItem.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          openingPortions: Number(regItemForm.openingPortions),
+          preparedPortions: Number(regItemForm.preparedPortions),
+          soldPortions: Number(regItemForm.soldPortions),
+          wastePortions: Number(regItemForm.wastePortions),
+          staffMealPortions: Number(regItemForm.staffMealPortions),
+          complimentaryPortions: Number(regItemForm.complimentaryPortions),
+          notes: regItemForm.notes || null
+        })
+      });
+      toast.success(`Updated all fields for ${editingRegisterItem.menuItem?.name || 'register item'}.`, 'Register Item Updated');
+      setEditingRegisterItem(null);
+      await loadRegister();
+    } catch (err: any) {
+      toast.critical(`Failed to update register item: ${err.message}`, 'Update Error');
+    }
+  };
+
+  const openEditBatch = (batch: any) => {
+    setEditingBatch(batch);
+    setEditBatchForm({
+      menuItemId: batch.menuItemId || '',
+      plannedPortions: Number(batch.plannedPortions ?? 20),
+      actualPreparedPortions: Number(batch.actualPreparedPortions ?? 20),
+      notes: batch.notes || ''
+    });
+  };
+
+  const handleSaveEditedBatch = async () => {
+    if (!editingBatch) return;
+    try {
+      await apiRequest(`/kitchen/batches/${editingBatch.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          menuItemId: editBatchForm.menuItemId || undefined,
+          plannedPortions: Number(editBatchForm.plannedPortions),
+          actualPreparedPortions: Number(editBatchForm.actualPreparedPortions),
+          notes: editBatchForm.notes || null
+        })
+      });
+      toast.success('Cooking batch updated and portion totals synchronized.', 'Batch Updated');
+      setEditingBatch(null);
+      await loadRegister();
+    } catch (err: any) {
+      toast.critical(`Failed to update cooking batch: ${err.message}`, 'Batch Update Error');
+    }
+  };
+
   const openBatchFor = async (menuItemId?: string) => {
     if (menuItemId) setBatchMenuId(menuItemId);
     setSelectedItem(null);
@@ -633,6 +718,8 @@ export function KitchenView() {
         searchPlaceholder="Search cooked dishes..."
         isLoading={isLoading}
         onRowClick={(row) => setSelectedItem(row)}
+        onEditRow={openEditRegisterItem}
+        canEdit={true}
       />
 
       {/* Register Line Detail Drawer */}
@@ -650,6 +737,9 @@ export function KitchenView() {
         actions={
           register?.status !== 'CLOSED' && (
             <>
+              <button id="kitchen-detail-edit-all" className={btn.secondary} onClick={() => openEditRegisterItem(selectedItem)}>
+                Edit All Fields
+              </button>
               <button id="kitchen-detail-waste" className={btn.secondary} onClick={() => openWasteFor(selectedItem?.menuItemId || selectedItem?.menuItem?.id)}>
                 <AlertOctagon className="w-4 h-4 text-rose-400" /> Record Waste / Staff Meal
               </button>
@@ -721,7 +811,16 @@ export function KitchenView() {
                         <li key={b.id} className="bg-slate-950/40 border border-slate-800 rounded-xl p-3 text-sm">
                           <div className="flex justify-between items-center gap-2">
                             <span className="font-mono text-xs text-slate-400">{formattedDateTime}</span>
-                            <span className="font-mono text-emerald-400 font-bold">+{b.actualPreparedPortions} cooked</span>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-emerald-400 font-bold">+{b.actualPreparedPortions} cooked</span>
+                              <button
+                                type="button"
+                                onClick={() => openEditBatch(b)}
+                                className="px-2 py-0.5 text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-amber-400 rounded border border-slate-700 transition"
+                              >
+                                Edit
+                              </button>
+                            </div>
                           </div>
                           <p className="text-xs text-slate-400 mt-1">Planned {b.plannedPortions} • Yield {b.plannedPortions ? Math.round((b.actualPreparedPortions / b.plannedPortions) * 100) : 0}%</p>
                           {b.notes && <p className="text-xs text-slate-300 mt-1 break-words">{b.notes}</p>}
@@ -924,6 +1023,177 @@ export function KitchenView() {
                 className="flex-1 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-bold rounded-xl"
               >
                 Confirm Closure
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit All Register Item Fields Modal */}
+      {editingRegisterItem && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <h3 className="font-bold text-lg text-white">
+              Edit Kitchen Register Item — {editingRegisterItem.menuItem?.name || 'Dish'}
+            </h3>
+            <p className="text-xs text-slate-400">
+              Update all portion counters and notes. Remaining portions will automatically recalculate.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Opening Portions</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={regItemForm.openingPortions}
+                  onChange={(e) => setRegItemForm({ ...regItemForm, openingPortions: Number(e.target.value) })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Prepared (Cooked)</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={regItemForm.preparedPortions}
+                  onChange={(e) => setRegItemForm({ ...regItemForm, preparedPortions: Number(e.target.value) })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-emerald-400 font-mono font-bold"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Sold (POS)</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={regItemForm.soldPortions}
+                  onChange={(e) => setRegItemForm({ ...regItemForm, soldPortions: Number(e.target.value) })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-amber-400 font-mono font-bold"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Kitchen Waste</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={regItemForm.wastePortions}
+                  onChange={(e) => setRegItemForm({ ...regItemForm, wastePortions: Number(e.target.value) })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-rose-400 font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Staff Meals</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={regItemForm.staffMealPortions}
+                  onChange={(e) => setRegItemForm({ ...regItemForm, staffMealPortions: Number(e.target.value) })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-blue-400 font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Complimentary</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={regItemForm.complimentaryPortions}
+                  onChange={(e) => setRegItemForm({ ...regItemForm, complimentaryPortions: Number(e.target.value) })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-purple-400 font-mono"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Notes</label>
+              <input
+                type="text"
+                value={regItemForm.notes}
+                onChange={(e) => setRegItemForm({ ...regItemForm, notes: e.target.value })}
+                placeholder="Kitchen notes..."
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200"
+              />
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                onClick={() => setEditingRegisterItem(null)}
+                className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveRegisterItem}
+                className="flex-1 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-bold rounded-xl"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Cooking Batch Modal */}
+      {editingBatch && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <h3 className="font-bold text-lg text-white">Edit Cooking Batch</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Menu Dish</label>
+                <select
+                  value={editBatchForm.menuItemId}
+                  onChange={(e) => setEditBatchForm({ ...editBatchForm, menuItemId: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200"
+                >
+                  {menuItems.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Planned Portions</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={editBatchForm.plannedPortions}
+                    onChange={(e) => setEditBatchForm({ ...editBatchForm, plannedPortions: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Actual Prepared Portions</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editBatchForm.actualPreparedPortions}
+                    onChange={(e) => setEditBatchForm({ ...editBatchForm, actualPreparedPortions: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-emerald-400 font-mono font-bold"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Chef Notes</label>
+                <input
+                  type="text"
+                  value={editBatchForm.notes}
+                  onChange={(e) => setEditBatchForm({ ...editBatchForm, notes: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                onClick={() => setEditingBatch(null)}
+                className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveEditedBatch}
+                className="flex-1 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-bold rounded-xl"
+              >
+                Update Batch
               </button>
             </div>
           </div>

@@ -377,6 +377,16 @@ export class AuthService {
     }
 
     const updateData: any = {};
+    if (data.username !== undefined && data.username.trim() && data.username.trim() !== existing.username) {
+      const nextUsername = data.username.trim();
+      const collision = await prisma.user.findFirst({
+        where: { username: nextUsername, id: { not: existing.id } }
+      });
+      if (collision) {
+        throw new Error(`Username "${nextUsername}" is already in use.`);
+      }
+      updateData.username = nextUsername;
+    }
     if (data.fullName !== undefined) updateData.fullName = data.fullName;
     if (data.email !== undefined) updateData.email = data.email || null;
     if (data.phone !== undefined) updateData.phone = data.phone || null;

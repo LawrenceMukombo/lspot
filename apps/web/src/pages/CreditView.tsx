@@ -52,7 +52,9 @@ export function CreditView() {
   const [newCustTpin, setNewCustTpin] = useState('');
   const [newCustAddress, setNewCustAddress] = useState('');
   const [newCustLimit, setNewCustLimit] = useState(10000);
+  const [newCustBalance, setNewCustBalance] = useState(0);
   const [newCustTerms, setNewCustTerms] = useState(30);
+  const [newCustIsActive, setNewCustIsActive] = useState(true);
 
   useEffect(() => {
     loadCreditData();
@@ -83,7 +85,9 @@ export function CreditView() {
     setNewCustTpin('');
     setNewCustAddress('');
     setNewCustLimit(10000);
+    setNewCustBalance(0);
     setNewCustTerms(30);
+    setNewCustIsActive(true);
     setShowAddCustomerModal(true);
   };
 
@@ -96,7 +100,9 @@ export function CreditView() {
     setNewCustTpin(customer.tpin || '');
     setNewCustAddress(customer.address || '');
     setNewCustLimit(Number(customer.creditLimit || 0));
+    setNewCustBalance(Number(customer.currentBalance || 0));
     setNewCustTerms(Number(customer.paymentTermsDays || 30));
+    setNewCustIsActive(customer.isActive ?? true);
     setShowAddCustomerModal(true);
   };
 
@@ -237,7 +243,9 @@ export function CreditView() {
             tpin: newCustTpin || null,
             address: newCustAddress || null,
             creditLimit: Number(newCustLimit),
-            paymentTermsDays: Number(newCustTerms)
+            currentBalance: Number(newCustBalance),
+            paymentTermsDays: Number(newCustTerms),
+            isActive: Boolean(newCustIsActive)
           })
         });
         toast.success(`Updated credit profile for ${newCustName}.`, 'Customer Profile Updated');
@@ -252,7 +260,9 @@ export function CreditView() {
             tpin: newCustTpin || null,
             address: newCustAddress || null,
             creditLimit: Number(newCustLimit),
-            paymentTermsDays: Number(newCustTerms)
+            currentBalance: Number(newCustBalance),
+            paymentTermsDays: Number(newCustTerms),
+            isActive: Boolean(newCustIsActive)
           })
         });
         toast.success(`Created credit account for ${newCustName} with ${formatZMW(Number(newCustLimit))} limit.`, 'Credit Account Created');
@@ -840,7 +850,7 @@ export function CreditView() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-slate-400 block mb-1">
                     Approved Credit Limit (ZMW)
@@ -852,6 +862,19 @@ export function CreditView() {
                     value={newCustLimit}
                     onChange={(e) => setNewCustLimit(Number(e.target.value))}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-400 block mb-1">
+                    Owed Balance / AR (ZMW)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={newCustBalance}
+                    onChange={(e) => setNewCustBalance(Number(e.target.value))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm text-rose-400 focus:outline-none focus:border-amber-500 font-mono font-bold"
                   />
                 </div>
                 <div>
@@ -878,6 +901,16 @@ export function CreditView() {
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500"
                 />
               </div>
+
+              <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 pt-1">
+                <input
+                  type="checkbox"
+                  checked={newCustIsActive}
+                  onChange={(e) => setNewCustIsActive(e.target.checked)}
+                  className="accent-amber-500 w-4 h-4 rounded"
+                />
+                Active customer credit account
+              </label>
             </div>
 
             <div className="flex items-center gap-3 pt-3 border-t border-slate-800">

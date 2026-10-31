@@ -40,6 +40,8 @@ const emptyMenuForm = {
   imageUrl: '',
   categoryId: '',
   sellingPrice: 0,
+  estimatedCost: 0,
+  recipeId: '',
   portionSize: 'Standard Portion',
   sku: '',
   isAvailable: true
@@ -129,6 +131,7 @@ export function MenuView() {
   };
 
   const openEditDish = (d: any) => {
+    setSelectedDish(d);
     // Resolve matching category ID
     let catId = d.categoryId || d.category?.id || '';
     if (!catId || !categories.some((c) => c.id === catId)) {
@@ -142,6 +145,8 @@ export function MenuView() {
       imageUrl: d.imageUrl || '',
       categoryId: catId,
       sellingPrice: Number(d.sellingPrice),
+      estimatedCost: Number(d.estimatedCost ?? 0),
+      recipeId: d.recipeId || d.recipe?.id || '',
       portionSize: d.portionSize || 'Standard Portion',
       sku: d.sku || '',
       isAvailable: d.isAvailable ?? true
@@ -166,9 +171,11 @@ export function MenuView() {
     const body = JSON.stringify({
       ...menuForm,
       sellingPrice: Number(menuForm.sellingPrice),
-      sku: menuForm.sku || undefined,
-      description: menuForm.description || undefined,
-      imageUrl: menuForm.imageUrl || undefined
+      estimatedCost: Number(menuForm.estimatedCost || 0),
+      recipeId: menuForm.recipeId || null,
+      sku: menuForm.sku || null,
+      description: menuForm.description || null,
+      imageUrl: menuForm.imageUrl || null
     });
     try {
       if (menuFormMode === 'CREATE') {
@@ -391,6 +398,8 @@ export function MenuView() {
         searchPlaceholder="Search menu dishes..."
         isLoading={isLoading}
         onRowClick={(row) => setSelectedDish(row)}
+        onEditRow={openEditDish}
+        canEdit={true}
       />
 
       {/* Dish Detail Drawer */}
@@ -582,6 +591,19 @@ export function MenuView() {
           <div>
             <label htmlFor="menu-sku" className={labelCls}>SKU (optional)</label>
             <input id="menu-sku" className={`${inputCls} font-mono`} value={menuForm.sku} onChange={(e) => setMenuForm({ ...menuForm, sku: e.target.value })} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label htmlFor="menu-cost" className={labelCls}>Est. portion cost (K)</label>
+            <input id="menu-cost" type="number" min="0" step="0.5" className={`${inputCls} font-mono`} value={menuForm.estimatedCost ?? 0} onChange={(e) => setMenuForm({ ...menuForm, estimatedCost: e.target.value })} />
+          </div>
+          <div>
+            <label htmlFor="menu-recipe" className={labelCls}>Linked standard recipe</label>
+            <select id="menu-recipe" className={inputCls} value={menuForm.recipeId || ''} onChange={(e) => setMenuForm({ ...menuForm, recipeId: e.target.value })}>
+              <option value="">-- Direct Resale / Custom Cost --</option>
+              {recipes.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
           </div>
         </div>
         <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">

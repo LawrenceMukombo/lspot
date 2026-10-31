@@ -69,7 +69,7 @@ export function requireRole(...allowedRoles: UserRole[]) {
       });
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
+    if (!allowedRoles.includes(req.user.role) && req.user.role !== UserRole.SUPER_ADMIN) {
       return res.status(403).json({
         success: false,
         message: `Forbidden. Role '${req.user.role}' is not authorized to perform this operation.`,

@@ -44,6 +44,58 @@ export function ShiftsView() {
   const [supervisorPin, setSupervisorPin] = useState('');
   const [dashboardSummary, setDashboardSummary] = useState<any>(null);
 
+  // Full Edit Shift Modal
+  const [editingShift, setEditingShift] = useState<any | null>(null);
+  const [shiftForm, setShiftForm] = useState({
+    openingFloat: 0,
+    cashSales: 0,
+    cashCreditCollections: 0,
+    cashExpenses: 0,
+    cashWithdrawals: 0,
+    actualCashCounted: 0,
+    varianceExplanation: '',
+    status: 'OPEN'
+  });
+
+  const openEditShift = (shift: any) => {
+    setEditingShift(shift);
+    setShiftForm({
+      openingFloat: Number(shift.openingFloat ?? 0),
+      cashSales: Number(shift.cashSales ?? 0),
+      cashCreditCollections: Number(shift.cashCreditCollections ?? 0),
+      cashExpenses: Number(shift.cashExpenses ?? 0),
+      cashWithdrawals: Number(shift.cashWithdrawals ?? 0),
+      actualCashCounted: Number(shift.actualCashCounted ?? shift.expectedCash ?? 0),
+      varianceExplanation: shift.varianceExplanation || '',
+      status: shift.status || 'OPEN'
+    });
+  };
+
+  const handleSaveShift = async () => {
+    if (!editingShift) return;
+    try {
+      await apiRequest(`/shifts/${editingShift.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          openingFloat: Number(shiftForm.openingFloat),
+          cashSales: Number(shiftForm.cashSales),
+          cashCreditCollections: Number(shiftForm.cashCreditCollections),
+          cashExpenses: Number(shiftForm.cashExpenses),
+          cashWithdrawals: Number(shiftForm.cashWithdrawals),
+          actualCashCounted: Number(shiftForm.actualCashCounted),
+          varianceExplanation: shiftForm.varianceExplanation || null,
+          status: shiftForm.status
+        })
+      });
+      toast.success('Shift record updated and expected cash recalculated.', 'Shift Updated');
+      setEditingShift(null);
+      loadShifts();
+      window.dispatchEvent(new CustomEvent('shiftUpdated'));
+    } catch (err: any) {
+      toast.critical(`Failed to update shift: ${err.message}`, 'Shift Update Error');
+    }
+  };
+
   useEffect(() => {
     loadShifts();
   }, []);
@@ -283,7 +335,117 @@ export function ShiftsView() {
         title="Cashier Shift Reconciliation History"
         searchPlaceholder="Search shifts..."
         isLoading={isLoading}
+        onRowClick={openEditShift}
+        onEditRow={openEditShift}
+        canEdit={true}
       />
+
+      {/* Full Edit Shift Modal */}
+      {editingShift && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <h3 className="font-bold text-lg text-white">Edit Cashier Shift — {editingShift.cashier?.fullName || 'Shift'}</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Opening Float (ZMW)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={shiftForm.openingFloat}
+                  onChange={(e) => setShiftForm({ ...shiftForm, openingFloat: Number(e.target.value) })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Cash Sales (ZMW)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={shiftForm.cashSales}
+                  onChange={(e) => setShiftForm({ ...shiftForm, cashSales: Number(e.target.value) })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-emerald-400 font-mono font-bold"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Debt Collections (ZMW)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={shiftForm.cashCreditCollections}
+                  onChange={(e) => setShiftForm({ ...shiftForm, cashCreditCollections: Number(e.target.value) })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-blue-400 font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Cash Expenses (ZMW)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={shiftForm.cashExpenses}
+                  onChange={(e) => setShiftForm({ ...shiftForm, cashExpenses: Number(e.target.value) })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-rose-400 font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Safe Drops (ZMW)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={shiftForm.cashWithdrawals}
+                  onChange={(e) => setShiftForm({ ...shiftForm, cashWithdrawals: Number(e.target.value) })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-amber-400 font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Counted Cash (ZMW)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={shiftForm.actualCashCounted}
+                  onChange={(e) => setShiftForm({ ...shiftForm, actualCashCounted: Number(e.target.value) })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white font-mono font-bold"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Shift Status</label>
+                <select
+                  value={shiftForm.status}
+                  onChange={(e) => setShiftForm({ ...shiftForm, status: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200"
+                >
+                  <option value="OPEN">OPEN</option>
+                  <option value="CLOSED">CLOSED</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Variance Explanation</label>
+                <input
+                  type="text"
+                  value={shiftForm.varianceExplanation}
+                  onChange={(e) => setShiftForm({ ...shiftForm, varianceExplanation: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                onClick={() => setEditingShift(null)}
+                className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveShift}
+                className="flex-1 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-bold rounded-xl"
+              >
+                Save Shift
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Safe Drop / Cash Withdrawal Modal */}
       {showWithdrawModal && currentShift && (

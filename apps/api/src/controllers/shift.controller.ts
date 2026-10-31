@@ -97,3 +97,18 @@ shiftRouter.get(
     }
   }
 );
+
+shiftRouter.put(
+  '/:id',
+  authenticate,
+  requireRole(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT),
+  async (req: RequestWithUser, res: Response) => {
+    try {
+      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const updated = await shiftService.updateShift(req.user!.tenantId, id, req.body);
+      return res.json({ success: true, message: 'Shift updated successfully', data: updated });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);

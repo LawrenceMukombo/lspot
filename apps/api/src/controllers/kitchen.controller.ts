@@ -127,3 +127,33 @@ kitchenRouter.post(
     }
   }
 );
+
+kitchenRouter.put(
+  '/items/:id',
+  authenticate,
+  requireRole(UserRole.OWNER, UserRole.MANAGER, UserRole.CHEF),
+  async (req: RequestWithUser, res: Response) => {
+    try {
+      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const updated = await kitchenService.updateRegisterItem(req.user!.tenantId, id, req.body);
+      return res.json({ success: true, message: 'Kitchen register item updated', data: updated });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);
+
+kitchenRouter.put(
+  '/batches/:id',
+  authenticate,
+  requireRole(UserRole.OWNER, UserRole.MANAGER, UserRole.CHEF),
+  async (req: RequestWithUser, res: Response) => {
+    try {
+      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const updated = await kitchenService.updateProductionBatch(req.user!.tenantId, id, req.body);
+      return res.json({ success: true, message: 'Cooking batch updated', data: updated });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  }
+);

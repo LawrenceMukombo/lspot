@@ -37,6 +37,7 @@ export const CreateMenuItemSchema = z.object({
   imageUrl: z.string().optional().nullable(),
   categoryId: z.string().min(1, 'Category is required'),
   sellingPrice: z.number().positive('Selling price must be positive'),
+  estimatedCost: z.number().min(0).optional(),
   portionSize: z.string().min(1, 'Portion size is required (e.g., Single, Double, 1/4 Chicken)'),
   recipeId: z.string().min(1).optional().nullable(),
   isAvailable: z.boolean().default(true),
@@ -71,11 +72,16 @@ export const ScaleRecipeSchema = z.object({
 export const CreateStockItemSchema = z.object({
   name: z.string().min(2, 'Item name is required'),
   sku: z.string().min(2, 'SKU / Code is required'),
-  category: z.nativeEnum(StockCategoryType),
+  category: z.union([z.nativeEnum(StockCategoryType), z.string()]).optional(),
+  categoryId: z.string().min(1).optional().nullable(),
   unitOfMeasure: z.nativeEnum(UnitOfMeasure),
   reorderLevel: z.number().min(0).default(5),
   initialQuantity: z.number().min(0).default(0),
+  currentStock: z.number().min(0).optional(),
   unitCost: z.number().min(0).default(0),
+  averageUnitCost: z.number().min(0).optional(),
+  barcode: z.string().optional().nullable(),
+  isActive: z.boolean().optional(),
   locationId: z.string().min(1).optional().nullable()
 });
 
@@ -193,8 +199,10 @@ export const CreateCustomerSchema = z.object({
   email: z.string().email().optional().or(z.literal('')).nullable(),
   tpin: z.string().optional().nullable(),
   creditLimit: z.number().min(0).default(0),
+  currentBalance: z.number().min(0).optional(),
   paymentTermsDays: z.number().int().min(0).default(30),
-  address: z.string().optional().nullable()
+  address: z.string().optional().nullable(),
+  isActive: z.boolean().optional()
 });
 
 export const UpdateCustomerSchema = CreateCustomerSchema.partial();
@@ -228,8 +236,11 @@ export const CreateExpenseSchema = z.object({
   payee: z.string().min(2, 'Payee is required'),
   description: z.string().min(3, 'Description is required'),
   paymentMethod: z.nativeEnum(PaymentMethod).default(PaymentMethod.CASH),
-  receiptNumber: z.string().optional().nullable()
+  receiptNumber: z.string().optional().nullable(),
+  expenseDate: z.string().optional().nullable()
 });
+
+export const UpdateExpenseSchema = CreateExpenseSchema.partial();
 
 // Offline Outbox Sync Schema
 export const OutboxSyncCommandSchema = z.object({
