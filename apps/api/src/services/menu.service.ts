@@ -39,7 +39,7 @@ export class MenuService {
       orderBy: { name: 'asc' }
     });
 
-    return items.map((item) => {
+    return items.map((item: any) => {
       const price = Number(item.sellingPrice);
       const cost = Number(item.estimatedCost);
       const margin = price > 0 ? roundTo2Decimals(((price - cost) / price) * 100) : 0;

@@ -176,7 +176,7 @@ export class AuthService {
       orderBy: { fullName: 'asc' }
     });
 
-    return users.map((u) => ({
+    return users.map((u: any) => ({
       ...u,
       hasSupervisorPin: Boolean(u.supervisorPin),
       supervisorPin: maskPin(u.supervisorPin)

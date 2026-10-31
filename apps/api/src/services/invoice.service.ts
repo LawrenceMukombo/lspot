@@ -53,8 +53,8 @@ export class InvoiceService {
       throw new Error('No unconsolidated credit sales found for this customer on the specified date');
     }
 
-    const totalSubtotal = creditSales.reduce((sum, s) => sum + Number(s.subtotal), 0);
-    const totalAmount = creditSales.reduce((sum, s) => sum + Number(s.totalAmount), 0);
+    const totalSubtotal = creditSales.reduce((sum: number, s: any) => sum + Number(s.subtotal), 0);
+    const totalAmount = creditSales.reduce((sum: number, s: any) => sum + Number(s.totalAmount), 0);
 
     const customer = await prisma.customer.findFirst({ where: { id: customerId, tenantId } });
     if (!customer) throw new Error('Customer not found');
@@ -63,7 +63,7 @@ export class InvoiceService {
     const dueDate = new Date(targetDate);
     dueDate.setDate(dueDate.getDate() + (customer.paymentTermsDays || 30));
 
-    return prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx: any) => {
       const invoice = await tx.invoice.create({
         data: {
           tenantId,
@@ -78,7 +78,7 @@ export class InvoiceService {
           status: 'ISSUED',
           notes: `Consolidated daily credit invoice for ${creditSales.length} meals on ${dateStr}`,
           saleLinks: {
-            create: creditSales.map((s) => ({
+            create: creditSales.map((s: any) => ({
               saleId: s.id
             }))
           }

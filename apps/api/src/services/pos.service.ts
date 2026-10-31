@@ -47,7 +47,7 @@ export class PosService {
       stockMap.set(s.name.toLowerCase(), Number(s.currentStock));
     }
 
-    const catalogItems = items.map((i) => {
+    const catalogItems = items.map((i: any) => {
       const price = Number(i.sellingPrice);
       const isBeverage =
         i.category.name.toLowerCase().includes('drink') ||
@@ -138,7 +138,7 @@ export class PosService {
     const zraCfg = integrations.zraConfig;
 
     // 3. Atomic Execution: Pre-flight validation + Sale + Items + Payments + Stock/Kitchen Update + Customer Balance + Shift Cash
-    return prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx: any) => {
       const todayRegister = await tx.kitchenRegister.findFirst({
         where: {
           tenantId,
@@ -204,7 +204,7 @@ export class PosService {
             throw new Error(`Cannot sell ${menuItem.name}: Kitchen Cooking Register is closed or not opened for today. All cooked meals must come from an active Kitchen Cooking Batch.`);
           }
 
-          const regItem = todayRegister.items.find((i) => i.menuItemId === menuItem.id);
+          const regItem = todayRegister.items.find((i: any) => i.menuItemId === menuItem.id);
           const remaining = regItem ? regItem.remainingPortions : 0;
 
           if (remaining < lineItem.quantity) {
@@ -512,7 +512,7 @@ export class PosService {
       throw new Error('This sale transaction has already been reversed / refunded');
     }
 
-    return prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx: any) => {
       // 1. Mark sale as REFUNDED and add reversal notes
       const updatedSale = await tx.sale.update({
         where: { id: saleId },
@@ -620,7 +620,7 @@ export class PosService {
       }
 
       // 3. Revert customer balance if credit sale
-      const creditPayment = sale.payments.find((p) => p.paymentMethod === PaymentMethod.CUSTOMER_CREDIT);
+      const creditPayment = sale.payments.find((p: any) => p.paymentMethod === PaymentMethod.CUSTOMER_CREDIT);
       if (creditPayment && sale.customer) {
         const newBalance = roundTo2Decimals(Math.max(0, Number(sale.customer.currentBalance) - Number(creditPayment.amount)));
         await tx.customer.update({
@@ -630,7 +630,7 @@ export class PosService {
       }
 
       // 4. Revert Cashier Shift expected cash if cash was received and shift is OPEN
-      const cashPay = sale.payments.find((p) => p.paymentMethod === PaymentMethod.CASH);
+      const cashPay = sale.payments.find((p: any) => p.paymentMethod === PaymentMethod.CASH);
       if (cashPay && sale.shift && sale.shift.status === 'OPEN') {
         const netCashReversal = Math.min(Number(cashPay.amount), Number(sale.totalAmount));
         const newCashSales = roundTo2Decimals(Math.max(0, Number(sale.shift.cashSales) - netCashReversal));

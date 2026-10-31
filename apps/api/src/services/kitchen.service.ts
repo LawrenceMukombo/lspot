@@ -79,14 +79,14 @@ export class KitchenService {
     });
 
     if (staleOpenRegisters.length > 0) {
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: any) => {
         for (const staleReg of staleOpenRegisters) {
           // Identify batches that were actually cooked today vs on prior days
           const batchesCookedToday = staleReg.batches.filter(
-            (b) => new Date(b.createdAt) >= startOfDayLusaka && new Date(b.createdAt) <= endOfDayLusaka
+            (b: any) => new Date(b.createdAt) >= startOfDayLusaka && new Date(b.createdAt) <= endOfDayLusaka
           );
           const batchesCookedPrior = staleReg.batches.filter(
-            (b) => new Date(b.createdAt) < startOfDayLusaka || new Date(b.createdAt) > endOfDayLusaka
+            (b: any) => new Date(b.createdAt) < startOfDayLusaka || new Date(b.createdAt) > endOfDayLusaka
           );
 
           // Move today's batches onto today's register so today's cooked food is preserved
@@ -100,8 +100,8 @@ export class KitchenService {
           // Recompute the stale register's items using only prior-day batches, and treat any unsold remainder as day-end waste
           for (const staleItem of staleReg.items) {
             const priorPrepared = batchesCookedPrior
-              .filter((b) => b.menuItemId === staleItem.menuItemId)
-              .reduce((sum, b) => sum + Number(b.actualPreparedPortions || 0), 0);
+              .filter((b: any) => b.menuItemId === staleItem.menuItemId)
+              .reduce((sum: number, b: any) => sum + Number(b.actualPreparedPortions || 0), 0);
 
             const consumedBeforeClose =
               Number(staleItem.soldPortions || 0) +
@@ -150,8 +150,8 @@ export class KitchenService {
 
       for (const item of todayItems) {
         const preparedToday = todayBatches
-          .filter((b) => b.menuItemId === item.menuItemId)
-          .reduce((sum, b) => sum + Number(b.actualPreparedPortions || 0), 0);
+          .filter((b: any) => b.menuItemId === item.menuItemId)
+          .reduce((sum: number, b: any) => sum + Number(b.actualPreparedPortions || 0), 0);
         const remainingToday = calculateClosingPreparedPortions({
           openingPortions: 0,
           preparedPortions: preparedToday,
@@ -179,12 +179,12 @@ export class KitchenService {
     const currentItems = await prisma.kitchenRegisterItem.findMany({
       where: { registerId: register.id }
     });
-    const existingMenuItemIds = new Set(currentItems.map((i) => i.menuItemId));
-    const missingItems = activeMenuItems.filter((m) => !existingMenuItemIds.has(m.id));
+    const existingMenuItemIds = new Set(currentItems.map((i: any) => i.menuItemId));
+    const missingItems = activeMenuItems.filter((m: any) => !existingMenuItemIds.has(m.id));
 
     if (missingItems.length > 0) {
       await prisma.kitchenRegisterItem.createMany({
-        data: missingItems.map((m) => ({
+        data: missingItems.map((m: any) => ({
           registerId: register!.id,
           menuItemId: m.id,
           openingPortions: 0,
@@ -256,7 +256,7 @@ export class KitchenService {
         businessDate,
         status: KitchenRegisterStatus.OPEN,
         items: {
-          create: menuItems.map((m) => ({
+          create: menuItems.map((m: any) => ({
             menuItemId: m.id,
             openingPortions: 0,
             preparedPortions: 0,
@@ -306,7 +306,7 @@ export class KitchenService {
     }
 
     // Atomic transaction: create batch, deduct raw ingredients from stock, increment prepared portions
-    return prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx: any) => {
       // 1. Create production batch record
       const batch = await tx.productionBatch.create({
         data: {
@@ -464,7 +464,7 @@ export class KitchenService {
       throw new Error('Kitchen register not found');
     }
 
-    return prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx: any) => {
       for (const item of itemsClosing) {
         const regItem = await tx.kitchenRegisterItem.findFirst({
           where: { registerId: register.id, menuItemId: item.menuItemId }

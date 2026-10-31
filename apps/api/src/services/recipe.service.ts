@@ -21,11 +21,13 @@ export class RecipeService {
       where: { id: { in: data.ingredients.map((i: any) => i.stockItemId) } }
     });
 
-    const itemCostMap = new Map(stockItems.map((si) => [si.id, Number(si.averageUnitCost)]));
+    const itemCostMap = new Map<string, number>(
+      stockItems.map((si: any) => [String(si.id), Number(si.averageUnitCost)])
+    );
 
     for (const ing of data.ingredients) {
-      const unitCost = itemCostMap.get(ing.stockItemId) || 0;
-      const ingCost = ing.quantity * unitCost * (1 + (ing.lossPercentage || 0) / 100);
+      const unitCost = Number(itemCostMap.get(ing.stockItemId) || 0);
+      const ingCost = Number(ing.quantity) * unitCost * (1 + Number(ing.lossPercentage || 0) / 100);
       totalStandardCost += ingCost;
     }
 
@@ -86,7 +88,7 @@ export class RecipeService {
     }
 
     const scaleFactor = targetPortions / recipe.expectedPortionYield;
-    const scaledIngredients = recipe.recipeIngredients.map((ing) => {
+    const scaledIngredients = recipe.recipeIngredients.map((ing: any) => {
       const baseQty = Number(ing.quantity);
       const scaledQty = roundQuantity(baseQty * scaleFactor);
       const unitCost = Number(ing.stockItem.averageUnitCost);
@@ -104,7 +106,7 @@ export class RecipeService {
       };
     });
 
-    const totalEstimatedCost = scaledIngredients.reduce((sum, item) => sum + item.estimatedCost, 0);
+    const totalEstimatedCost = scaledIngredients.reduce((sum: number, item: any) => sum + item.estimatedCost, 0);
 
     return {
       recipeId: recipe.id,

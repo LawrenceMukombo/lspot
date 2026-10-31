@@ -8,7 +8,7 @@ export class CreditService {
       orderBy: { name: 'asc' }
     });
 
-    return customers.map((c) => {
+    return customers.map((c: any) => {
       const limit = Number(c.creditLimit);
       const balance = Number(c.currentBalance);
       const available = Math.max(0, limit - balance);
@@ -98,7 +98,7 @@ export class CreditService {
     const currentBal = Number(customer.currentBalance);
     const newBal = roundTo2Decimals(Math.max(0, currentBal - payAmount));
 
-    return prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx: any) => {
       await tx.customer.update({
         where: { id: customer.id },
         data: { currentBalance: newBal }
@@ -203,7 +203,7 @@ export class CreditService {
     });
 
     const now = new Date();
-    const result = customers.map((c) => {
+    const result = customers.map((c: any) => {
       let current = 0;
       let days30 = 0;
       let days60 = 0;

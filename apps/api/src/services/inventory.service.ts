@@ -28,7 +28,7 @@ export class InventoryService {
       orderBy: { name: 'asc' }
     });
 
-    return items.map((i) => {
+    return items.map((i: any) => {
       const stock = Number(i.currentStock);
       const reorder = Number(i.reorderLevel);
       const unitCost = Number(i.averageUnitCost);
@@ -79,7 +79,7 @@ export class InventoryService {
     const destinationLocationId = await this.resolveLocationId(tenantId, data.destinationLocationId, 'STORE');
 
     // Atomic transaction: movement record + balance update
-    return prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx: any) => {
       await tx.stockItem.update({
         where: { id: stockItem.id },
         data: {
@@ -160,7 +160,7 @@ export class InventoryService {
     const unitCost = Number(stockItem.averageUnitCost);
     const adjustLocationId = await this.resolveLocationId(tenantId, data.locationId, 'STORE');
 
-    return prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx: any) => {
       await tx.stockItem.update({
         where: { id: stockItem.id },
         data: {
@@ -286,8 +286,8 @@ export class InventoryService {
       }
     });
 
-    return stockItems.map((item) => {
-      const itemMovements = movements.filter((m) => m.stockItemId === item.id);
+    return stockItems.map((item: any) => {
+      const itemMovements = movements.filter((m: any) => m.stockItemId === item.id);
       
       let receivedToday = 0;
       let consumedToday = 0;

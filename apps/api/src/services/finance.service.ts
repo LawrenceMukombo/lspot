@@ -23,7 +23,7 @@ export class FinanceService {
         include: { payments: true, items: { include: { menuItem: { include: { category: true } } } } }
       });
 
-      const salesInPeriod = allSalesInPeriod.filter((s) => s.paymentStatus !== 'REFUNDED');
+      const salesInPeriod = allSalesInPeriod.filter((s: any) => s.paymentStatus !== 'REFUNDED');
       const voidsAndReversalsCount = allSalesInPeriod.length - salesInPeriod.length;
 
       let todaySales = 0;
@@ -52,7 +52,7 @@ export class FinanceService {
       const customers = await prisma.customer.findMany({
         where: { tenantId, currentBalance: { gt: 0 } }
       });
-      const outstandingDebtors = customers.reduce((sum, c) => sum + Number(c.currentBalance), 0);
+      const outstandingDebtors = customers.reduce((sum: number, c: any) => sum + Number(c.currentBalance), 0);
 
       // 3. Operating Expenses in period
       const expensesInPeriod = await prisma.expense.findMany({
@@ -61,7 +61,7 @@ export class FinanceService {
           expenseDate: { gte: start, lte: end }
         }
       });
-      const operatingExpenses = expensesInPeriod.reduce((sum, e) => sum + Number(e.amount), 0);
+      const operatingExpenses = expensesInPeriod.reduce((sum: number, e: any) => sum + Number(e.amount), 0);
 
       // 4. Inventory Value & Low stock items
       const stockItems = await prisma.stockItem.findMany({
@@ -278,7 +278,7 @@ export class FinanceService {
     const paymentMethod = data.paymentMethod || 'CASH';
     const amount = Number(data.amount);
 
-    return prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx: any) => {
       let categoryId = data.categoryId;
       const validCat = categoryId
         ? await tx.expenseCategory.findFirst({ where: { id: categoryId, tenantId } })
