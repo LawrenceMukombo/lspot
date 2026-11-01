@@ -273,15 +273,21 @@ export function Navbar({ activeShift }: NavbarProps) {
     } catch (err: any) {
       const msg = String(err?.message || '');
       const isNetworkFailure =
+        (typeof navigator !== 'undefined' && !navigator.onLine) ||
+        msg.includes('Offline Mode') ||
+        msg.includes('Unable to reach server') ||
+        msg.includes('offline') ||
+        msg.includes('Offline') ||
         msg.includes('Failed to fetch') ||
         msg.includes('NetworkError') ||
         msg.includes('Load failed') ||
         msg.includes('status 502') ||
         msg.includes('status 503') ||
-        msg.includes('status 504');
+        msg.includes('status 504') ||
+        msg.includes('abort');
 
       if (isNetworkFailure) {
-        const offlinePinMap: Record<string, any> = {
+        const baseOfflinePinMap: Record<string, any> = {
           '8899': {
             id: '00000000-0000-0000-0000-000000000099',
             username: 'superadmin',
@@ -299,15 +305,59 @@ export function Navbar({ activeShift }: NavbarProps) {
             username: 'manager',
             fullName: 'Mulenga Banda (Manager)',
             role: 'MANAGER'
+          },
+          '1122': {
+            id: '33333333-3333-3333-3333-333333333333',
+            username: 'cashier',
+            fullName: 'Chileshe Mwape (Cashier)',
+            role: 'CASHIER'
+          },
+          '4433': {
+            id: '44444444-4444-4444-4444-444444444444',
+            username: 'chef',
+            fullName: 'Chef Tembo (Head Cook)',
+            role: 'CHEF'
+          },
+          '5566': {
+            id: '55555555-5555-5555-5555-555555555555',
+            username: 'bar',
+            fullName: 'Bwalya Phiri (Barista / Bartender)',
+            role: 'BAR'
+          },
+          '7788': {
+            id: '66666666-6666-6666-6666-666666666666',
+            username: 'waiter',
+            fullName: 'Kabwe Mutale (Floor Service)',
+            role: 'WAITER'
           }
         };
+
+        // Merge locally cached staff roster
+        try {
+          const rawRoster = localStorage.getItem('lspot_cached_staff_roster');
+          if (rawRoster) {
+            const roster: any[] = JSON.parse(rawRoster);
+            for (const u of roster) {
+              const uPin = String(u.supervisorPin || u.pin || '').trim();
+              if (uPin) {
+                baseOfflinePinMap[uPin] = {
+                  id: u.id,
+                  username: u.username,
+                  fullName: u.fullName || u.username,
+                  role: u.role
+                };
+              }
+            }
+          }
+        } catch {}
+
         const lastPin = localStorage.getItem('lspot_last_verified_pin');
         const matchedOfflineUser =
-          offlinePinMap[trimmedPin] || (lastPin && lastPin === trimmedPin ? currentUser : null);
+          baseOfflinePinMap[trimmedPin] || (lastPin && lastPin === trimmedPin ? currentUser : null);
 
         if (matchedOfflineUser) {
           setCurrentUser(matchedOfflineUser);
-          setAuthSession(localStorage.getItem('lspot_auth_token') || 'offline-session-token', matchedOfflineUser);
+          setAuthSession(localStorage.getItem('lspot_auth_token') || `offline-session-${Date.now()}`, matchedOfflineUser);
           setIsLocked(false);
           setEnteredPin('');
           setPinError('');

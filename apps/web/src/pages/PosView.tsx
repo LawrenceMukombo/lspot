@@ -452,6 +452,28 @@ export function PosView() {
         res = offlineSale;
       }
 
+      // Save into recent offline sales so SalesRegisterView can view and print receipts offline
+      try {
+        const recent = offlineStorage.getRecentSales();
+        recent.unshift({
+          id: res?.id || `sale-${Date.now()}`,
+          saleNumber: res?.saleNumber || `ORD-${Date.now().toString().slice(-6)}`,
+          orderNumber: res?.orderNumber,
+          totalAmount: cartNetTotal,
+          paymentMethod,
+          cashierName: activeShift?.cashierName || 'Cashier (Till Active)',
+          createdAt: new Date().toISOString(),
+          items: cart.map((c) => ({
+            name: c.name,
+            quantity: c.quantity,
+            unitPrice: c.sellingPrice,
+            subtotal: c.subtotal || (c.quantity * c.sellingPrice)
+          })),
+          offlineStatus: navigator.onLine ? 'SYNCED' : 'QUEUED'
+        });
+        localStorage.setItem('lspot_offline_recent_sales', JSON.stringify(recent.slice(0, 100)));
+      } catch {}
+
       // Trigger Kitchen KDS new order chime event
       const orderNumber = res?.orderNumber || (res?.notes && res.notes.includes('[#') ? res.notes.match(/\[#\d+\]/)?.[0]?.replace(/[\[\]]/g, '') : undefined);
       const kdsOrder = {
@@ -461,12 +483,31 @@ export function PosView() {
         orderType,
         tableNumber,
         items: cart.map((c) => ({ name: c.name, quantity: c.quantity, notes: c.notes })),
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        status: 'QUEUED'
       };
       const existingKds = JSON.parse(localStorage.getItem('lspot_active_kds_orders') || '[]');
       existingKds.unshift(kdsOrder);
       localStorage.setItem('lspot_active_kds_orders', JSON.stringify(existingKds.slice(0, 20)));
       window.dispatchEvent(new CustomEvent('newKitchenTicketFired', { detail: kdsOrder }));
+
+      // Deduct portions in local kitchen register if offline
+      try {
+        const rawReg = localStorage.getItem('lspot_offline_kitchen_register');
+        if (rawReg) {
+          const reg = JSON.parse(rawReg);
+          const items = reg.items || [];
+          for (const c of cart) {
+            const idx = items.findIndex((i: any) => (i.menuItemId || i.menuItem?.id) === c.id);
+            if (idx >= 0) {
+              items[idx].soldPortions = (Number(items[idx].soldPortions) || 0) + c.quantity;
+              items[idx].remainingPortions = Math.max(0, (Number(items[idx].remainingPortions) || 0) - c.quantity);
+            }
+          }
+          reg.items = items;
+          localStorage.setItem('lspot_offline_kitchen_register', JSON.stringify(reg));
+        }
+      } catch {}
 
       // Update Customer Loyalty Stamp Card
       if (loyaltyProfile && loyaltyPhone) {
