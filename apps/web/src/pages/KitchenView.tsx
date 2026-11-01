@@ -16,6 +16,7 @@ import {
   Clock
 } from 'lucide-react';
 import { apiRequest } from '../api.js';
+import { offlineStorage } from '../utils/offlineStorage.js';
 import { EnterpriseTable, Column } from '../components/EnterpriseTable.js';
 import { DetailDrawer, DetailStat, DetailSection, DetailRows, btn } from '../components/DetailDrawer.js';
 import { toast } from '../components/Toast.js';
@@ -279,6 +280,9 @@ export function KitchenView() {
       const res = await apiRequest('/kitchen/registers/today');
       if (res) {
         setRegister(res);
+        try {
+          localStorage.setItem('lspot_offline_kitchen_register', JSON.stringify(res));
+        } catch {}
         setSelectedItem((prev: any) => {
           if (!prev) return null;
           const prevMenuId = prev.menuItemId || prev.menuItem?.id;
@@ -287,8 +291,42 @@ export function KitchenView() {
         window.dispatchEvent(new CustomEvent('kitchenRegisterUpdated'));
       }
     } catch (e: any) {
-      console.warn('Network error loading today kitchen register:', e);
-      setRegister(null);
+      console.warn('Network error loading today kitchen register, falling back to offline cache:', e);
+      try {
+        const cachedStr = localStorage.getItem('lspot_offline_kitchen_register');
+        if (cachedStr) {
+          const cached = JSON.parse(cachedStr);
+          setRegister(cached);
+        } else {
+          // Initialize offline register with current menu items
+          const initialItems = menuItems.map((m) => ({
+            id: `offline-prep-${m.id}`,
+            menuItemId: m.id,
+            menuItem: m,
+            preparedPortions: 15,
+            soldPortions: 0,
+            wastedPortions: 0,
+            remainingPortions: 15
+          }));
+          const offlineReg = {
+            id: 'offline-kitchen-register-today',
+            date: new Date().toISOString(),
+            status: 'OPEN',
+            openingFloat: 0,
+            items: initialItems
+          };
+          setRegister(offlineReg);
+          localStorage.setItem('lspot_offline_kitchen_register', JSON.stringify(offlineReg));
+        }
+      } catch {
+        setRegister({
+          id: 'offline-kitchen-register-today',
+          date: new Date().toISOString(),
+          status: 'OPEN',
+          openingFloat: 0,
+          items: []
+        });
+      }
     } finally {
       setIsLoading(false);
     }
@@ -297,10 +335,29 @@ export function KitchenView() {
   const loadMenuItems = async () => {
     try {
       const items = await apiRequest('/menu/items');
-      if (items) setMenuItems(items);
+      if (items && Array.isArray(items) && items.length > 0) {
+        setMenuItems(items);
+        try {
+          localStorage.setItem('lspot_offline_menu_items', JSON.stringify(items));
+        } catch {}
+      } else {
+        throw new Error('Empty menu returned');
+      }
     } catch (e: any) {
-      console.warn('Network error loading menu items for kitchen batch:', e);
-      setMenuItems([]);
+      console.warn('Network error loading menu items, falling back to offline cache:', e);
+      try {
+        const cachedStr = localStorage.getItem('lspot_offline_menu_items');
+        if (cachedStr) {
+          setMenuItems(JSON.parse(cachedStr));
+        } else {
+          const cat = offlineStorage.getCachedCatalog();
+          if (cat.items && cat.items.length > 0) {
+            setMenuItems(cat.items);
+          }
+        }
+      } catch {
+        setMenuItems([]);
+      }
     }
   };
 
@@ -651,16 +708,18 @@ export function KitchenView() {
                     {ticket.status !== 'COOKING' ? (
                       <button
                         onClick={async () => {
-                          setKdsTickets((prev) =>
-                            prev.map((t) => (t.id === ticket.id ? { ...t, status: 'COOKING' } : t))
-                          );
+                          const updated: KdsTicket[] = kdsTickets.map((t) => (t.id === ticket.id ? { ...t, status: 'COOKING' as const } : t));
+                          setKdsTickets(updated);
+                          try {
+                            localStorage.setItem('lspot_active_kds_orders', JSON.stringify(updated));
+                          } catch {}
                           try {
                             await apiRequest(`/pos/kds-tickets/${encodeURIComponent(ticket.id)}/status`, {
                               method: 'PATCH',
                               body: JSON.stringify({ status: 'COOKING', ticketData: { ...ticket, status: 'COOKING' } })
                             });
                           } catch (err) {
-                            console.warn('Could not sync cooking status to server:', err);
+                            console.warn('Could not sync cooking status to server (queued offline):', err);
                           }
                         }}
                         className="flex-1 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
@@ -676,14 +735,18 @@ export function KitchenView() {
 
                     <button
                       onClick={async () => {
-                        setKdsTickets((prev) => prev.filter((t) => t.id !== ticket.id));
+                        const remaining = kdsTickets.filter((t) => t.id !== ticket.id);
+                        setKdsTickets(remaining);
+                        try {
+                          localStorage.setItem('lspot_active_kds_orders', JSON.stringify(remaining));
+                        } catch {}
                         try {
                           await apiRequest(`/pos/kds-tickets/${encodeURIComponent(ticket.id)}/status`, {
                             method: 'PATCH',
                             body: JSON.stringify({ status: 'SERVED', ticketData: { ...ticket, status: 'SERVED' } })
                           });
                         } catch (err) {
-                          console.warn('Could not sync served status to server:', err);
+                          console.warn('Could not sync served status to server (queued offline):', err);
                         }
                       }}
                       className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 shadow-md shadow-emerald-950"

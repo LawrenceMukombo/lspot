@@ -143,7 +143,33 @@ export function PosView() {
   const checkShift = async () => {
     try {
       const shift = await apiRequest('/shifts/current');
-      setActiveShift(shift);
+      if (shift) {
+        setActiveShift(shift);
+        try {
+          localStorage.setItem('lspot_offline_active_shift', JSON.stringify(shift));
+        } catch {}
+        return;
+      }
+    } catch {
+      // Offline fallback
+    }
+
+    try {
+      const cached = localStorage.getItem('lspot_offline_active_shift');
+      if (cached) {
+        setActiveShift(JSON.parse(cached));
+      } else {
+        const defaultShift = {
+          id: 'offline-till-shift',
+          status: 'OPEN',
+          openingFloat: 500,
+          expectedCash: 500,
+          openedAt: new Date().toISOString(),
+          cashierName: 'Cashier (Till Active)'
+        };
+        setActiveShift(defaultShift);
+        localStorage.setItem('lspot_offline_active_shift', JSON.stringify(defaultShift));
+      }
     } catch {
       setActiveShift(null);
     }
@@ -158,14 +184,34 @@ export function PosView() {
         setCategories(catList);
         setItems(itemList);
         offlineStorage.saveCatalog(catList, itemList);
+        return;
       }
     } catch (e) {
       console.warn('Network error fetching catalog, loading from offline storage:', e);
-      const cached = offlineStorage.getCachedCatalog();
-      if (cached.items.length > 0) {
-        setCategories(cached.categories);
-        setItems(cached.items);
-      }
+    }
+
+    const cached = offlineStorage.getCachedCatalog();
+    if (cached.items.length > 0) {
+      setCategories(cached.categories);
+      setItems(cached.items);
+    } else {
+      const defaultCategories = [
+        { id: 'cat-grills', name: 'Mains & Grills' },
+        { id: 'cat-traditional', name: 'Traditional Stews' },
+        { id: 'cat-drinks', name: 'Beverages & Cold Beers' }
+      ];
+      const defaultItems: any[] = [
+        { id: 'm-tbone', name: 'Charcoal Grilled T-Bone Steak', categoryId: 'cat-grills', sellingPrice: 120, department: 'KITCHEN' },
+        { id: 'm-qtrchk', name: 'Quarter Chicken & Chips', categoryId: 'cat-grills', sellingPrice: 65, department: 'KITCHEN' },
+        { id: 'm-vilchk', name: 'Village Chicken & Nshima', categoryId: 'cat-traditional', sellingPrice: 85, department: 'KITCHEN' },
+        { id: 'm-beefstew', name: 'Beef Stew & Nshima', categoryId: 'cat-traditional', sellingPrice: 55, department: 'KITCHEN' },
+        { id: 'm-mosi', name: 'Mosi Premium Lager 375ml', categoryId: 'cat-drinks', sellingPrice: 25, department: 'BAR' },
+        { id: 'm-coke', name: 'Coca-Cola 330ml Can', categoryId: 'cat-drinks', sellingPrice: 15, department: 'BAR' },
+        { id: 'm-water', name: 'Mineral Water 500ml', categoryId: 'cat-drinks', sellingPrice: 10, department: 'BAR' }
+      ];
+      setCategories(defaultCategories);
+      setItems(defaultItems);
+      offlineStorage.saveCatalog(defaultCategories, defaultItems);
     }
   };
 

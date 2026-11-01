@@ -34,9 +34,11 @@ import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-import androidx.webkit.WebViewAssetLoader;
 
+import java.io.IOException;
 import java.io.InputStream;
+import java.util.HashMap;
+import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -48,8 +50,6 @@ public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
     private FrameLayout splashOverlay;
-    private WebViewAssetLoader assetLoader;
-    private boolean hasFallenBackToLocal = false;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -59,8 +59,6 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
 
         try {
-            initAssetLoader();
-
             // Request Camera permission for Face Recognition if not granted
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                     != PackageManager.PERMISSION_GRANTED) {
@@ -96,13 +94,13 @@ public class MainActivity extends AppCompatActivity {
             webView.setWebViewClient(new WebViewClient() {
                 @Override
                 public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                    try {
-                        Uri uri = request.getUrl();
-                        if (uri != null && LOCAL_ORIGIN.equalsIgnoreCase(uri.getHost())) {
-                            return assetLoader.shouldInterceptRequest(uri);
-                        }
-                    } catch (Exception e) {
-                        Log.w(TAG, "Error in assetLoader interception", e);
+                    if (request == null || request.getUrl() == null) {
+                        return super.shouldInterceptRequest(view, request);
+                    }
+                    Uri uri = request.getUrl();
+                    String host = uri.getHost();
+                    if (host != null && (host.equalsIgnoreCase(LOCAL_ORIGIN) || host.equalsIgnoreCase("localhost"))) {
+                        return handleLocalAssetRequest(uri);
                     }
                     return super.shouldInterceptRequest(view, request);
                 }
@@ -120,16 +118,12 @@ public class MainActivity extends AppCompatActivity {
                         WebResourceError error
                 ) {
                     if (request != null && request.isForMainFrame()) {
-                        Log.w(TAG, "MainFrame error on URL: " + request.getUrl());
-                        // Fall back to bundled offline web app if not already on it
-                        if (!hasFallenBackToLocal) {
-                            hasFallenBackToLocal = true;
-                            mainHandler.post(() -> {
-                                if (webView != null) {
-                                    webView.loadUrl(LOCAL_BUNDLE_URL);
-                                }
-                            });
-                        }
+                        Log.w(TAG, "MainFrame navigation error on URL: " + request.getUrl());
+                        mainHandler.post(() -> {
+                            if (webView != null) {
+                                webView.loadUrl(LOCAL_BUNDLE_URL);
+                            }
+                        });
                     }
                 }
             });
@@ -147,50 +141,79 @@ public class MainActivity extends AppCompatActivity {
 
             setContentView(root);
 
-            // Safety timeout: dismiss splash after 4.5 seconds even on slow networks
-            mainHandler.postDelayed(this::dismissNativeSplash, 4500);
+            // Safety timeout: dismiss splash after 3 seconds so screen is never blocked
+            mainHandler.postDelayed(this::dismissNativeSplash, 3000);
 
-            if (isNetworkConnected()) {
-                webView.loadUrl(CLOUD_URL);
-            } else {
-                hasFallenBackToLocal = true;
-                webView.loadUrl(LOCAL_BUNDLE_URL);
-            }
+            // True Offline-First Architecture:
+            // Always boot from local bundled assets on appassets.androidplatform.net
+            // Instant startup, 100% offline resiliency, and permanent origin stability for localStorage/IndexedDB
+            webView.loadUrl(LOCAL_BUNDLE_URL);
+
         } catch (Throwable t) {
             Log.e(TAG, "Fatal error initializing MainActivity", t);
         }
     }
 
-    private void initAssetLoader() {
-        assetLoader = new WebViewAssetLoader.Builder()
-                .setDomain(LOCAL_ORIGIN)
-                .addPathHandler("/", path -> {
-                    try {
-                        String cleanPath = path;
-                        if (cleanPath.startsWith("/")) {
-                            cleanPath = cleanPath.substring(1);
-                        }
-                        if (cleanPath.isEmpty()) {
-                            cleanPath = "index.html";
-                        }
-                        String assetPath = "public/" + cleanPath;
-                        InputStream is = getAssets().open(assetPath);
+    private WebResourceResponse handleLocalAssetRequest(Uri uri) {
+        String path = uri.getPath();
+        if (path == null || path.isEmpty() || path.equals("/")) {
+            path = "index.html";
+        }
+        if (path.startsWith("/")) {
+            path = path.substring(1);
+        }
 
-                        String mimeType = "text/html";
-                        if (cleanPath.endsWith(".js")) mimeType = "application/javascript";
-                        else if (cleanPath.endsWith(".css")) mimeType = "text/css";
-                        else if (cleanPath.endsWith(".json")) mimeType = "application/json";
-                        else if (cleanPath.endsWith(".png")) mimeType = "image/png";
-                        else if (cleanPath.endsWith(".jpg") || cleanPath.endsWith(".jpeg")) mimeType = "image/jpeg";
-                        else if (cleanPath.endsWith(".svg")) mimeType = "image/svg+xml";
-                        else if (cleanPath.endsWith(".woff2")) mimeType = "font/woff2";
+        // Clean out query parameters or hashes
+        int q = path.indexOf('?');
+        if (q >= 0) {
+            path = path.substring(0, q);
+        }
 
-                        return new WebResourceResponse(mimeType, "UTF-8", is);
-                    } catch (Exception e) {
-                        return null;
-                    }
-                })
-                .build();
+        try {
+            InputStream is = getAssets().open("public/" + path);
+            String mime = getMimeType(path);
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Access-Control-Allow-Origin", "*");
+            headers.put("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+            headers.put("Access-Control-Allow-Headers", "*");
+            headers.put("Cache-Control", "no-cache");
+            return new WebResourceResponse(mime, "UTF-8", 200, "OK", headers, is);
+        } catch (IOException e) {
+            // Single-Page Application (SPA) Fallback:
+            // Route missing sub-paths (e.g. /kitchen, /pos, /shifts) to index.html
+            if (!path.contains(".")) {
+                try {
+                    InputStream is = getAssets().open("public/index.html");
+                    Map<String, String> headers = new HashMap<>();
+                    headers.put("Access-Control-Allow-Origin", "*");
+                    headers.put("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+                    headers.put("Access-Control-Allow-Headers", "*");
+                    return new WebResourceResponse("text/html", "UTF-8", 200, "OK", headers, is);
+                } catch (IOException ex) {
+                    return null;
+                }
+            }
+            return null;
+        }
+    }
+
+    private String getMimeType(String path) {
+        String lower = path.toLowerCase();
+        if (lower.endsWith(".html") || lower.endsWith(".htm")) return "text/html";
+        if (lower.endsWith(".js") || lower.endsWith(".mjs")) return "application/javascript";
+        if (lower.endsWith(".css")) return "text/css";
+        if (lower.endsWith(".json")) return "application/json";
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+        if (lower.endsWith(".svg")) return "image/svg+xml";
+        if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".ico")) return "image/x-icon";
+        if (lower.endsWith(".woff2")) return "font/woff2";
+        if (lower.endsWith(".woff")) return "font/woff";
+        if (lower.endsWith(".ttf")) return "font/ttf";
+        if (lower.endsWith(".mp3")) return "audio/mpeg";
+        if (lower.endsWith(".wav")) return "audio/wav";
+        return "application/octet-stream";
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -202,6 +225,10 @@ public class MainActivity extends AppCompatActivity {
         settings.setAllowContentAccess(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        try {
+            settings.setAllowFileAccessFromFileURLs(true);
+            settings.setAllowUniversalAccessFromFileURLs(true);
+        } catch (Exception ignored) {}
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             settings.setSafeBrowsingEnabled(false);
         }
@@ -265,10 +292,10 @@ public class MainActivity extends AppCompatActivity {
     private void dismissNativeSplash() {
         if (splashOverlay != null && splashOverlay.getVisibility() == View.VISIBLE) {
             AlphaAnimation fadeOut = new AlphaAnimation(1.0f, 0.0f);
-            fadeOut.setDuration(400);
+            fadeOut.setDuration(350);
             fadeOut.setFillAfter(true);
             splashOverlay.startAnimation(fadeOut);
-            splashOverlay.postDelayed(() -> splashOverlay.setVisibility(View.GONE), 410);
+            splashOverlay.postDelayed(() -> splashOverlay.setVisibility(View.GONE), 360);
         }
     }
 
@@ -306,25 +333,17 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public void reloadLiveCloud() {
             runOnUiThread(() -> {
-                if (webView != null && isNetworkConnected()) {
-                    hasFallenBackToLocal = false;
+                if (webView != null) {
                     webView.clearCache(true);
-                    webView.loadUrl(CLOUD_URL + "/?v=" + System.currentTimeMillis());
+                    webView.loadUrl(LOCAL_BUNDLE_URL + "?t=" + System.currentTimeMillis());
                 }
             });
         }
 
         @JavascriptInterface
         public void switchToLiveCloud() {
-            runOnUiThread(() -> {
-                if (webView != null && isNetworkConnected()) {
-                    String currentUrl = webView.getUrl();
-                    if (currentUrl != null && currentUrl.contains(LOCAL_ORIGIN)) {
-                        hasFallenBackToLocal = false;
-                        webView.loadUrl(CLOUD_URL);
-                    }
-                }
-            });
+            // Retain local bundle origin to preserve offline localStorage continuity
+            reloadLiveCloud();
         }
     }
 }

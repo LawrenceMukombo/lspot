@@ -39,15 +39,22 @@ if (-not (Test-Path $PlatformDir)) {
 # 3. Ensure launcher icons are generated
 powershell.exe -ExecutionPolicy Bypass -File apps/mobile/scripts/generate-icons.ps1
 
-# 4. Write local.properties for Gradle
+# 4. Write local.properties & ensure Release Keystore exists
 $AndroidProjectDir = "C:\lrm\apps\mobile\android"
 $EscapedSdk = $AndroidSdkDir.Replace("\", "\\")
 Set-Content -Path (Join-Path $AndroidProjectDir "local.properties") -Value "sdk.dir=$EscapedSdk" -Encoding ASCII
 
+$KeystorePath = Join-Path $AndroidProjectDir "keystore\lspot-release.jks"
+if (-not (Test-Path $KeystorePath)) {
+    Write-Host "Creating enterprise release keystore for APK signing..." -ForegroundColor Cyan
+    New-Item -ItemType Directory -Force -Path (Split-Path $KeystorePath) | Out-Null
+    & keytool -genkeypair -v -keystore $KeystorePath -alias lspot -keyalg RSA -keysize 2048 -validity 10000 -storepass 'LSpotPass2026!' -keypass 'LSpotPass2026!' -dname 'CN=LSpot POS, OU=IT, O=Lamton Investments, L=Manyama, ST=Northwestern, C=ZM'
+}
+
 # 5. Run Gradle wrapper to assemble signed Release & Debug APKs with V1 and V2 signatures
 Write-Host "`n[3/4] Compiling Android APK via Gradle 8.5..." -ForegroundColor Cyan
 Set-Location $AndroidProjectDir
-& .\gradlew.bat assembleRelease assembleDebug
+& .\gradlew.bat clean assembleRelease assembleDebug
 
 $ReleaseApk = "C:\lrm\apps\mobile\android\app\build\outputs\apk\release\app-release.apk"
 $DebugApk = "C:\lrm\apps\mobile\android\app\build\outputs\apk\debug\app-debug.apk"

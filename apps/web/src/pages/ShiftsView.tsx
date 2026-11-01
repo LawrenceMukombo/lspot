@@ -104,17 +104,27 @@ export function ShiftsView() {
     setIsLoading(true);
     try {
       const curr = await apiRequest('/shifts/current');
-      setCurrentShift(curr);
       if (curr) {
+        setCurrentShift(curr);
         setActualCash(Number(curr.expectedCash || 0));
+        try {
+          localStorage.setItem('lspot_offline_active_shift', JSON.stringify(curr));
+        } catch {}
       }
       const hist = await apiRequest('/shifts/history');
       if (hist) setShiftHistory(hist);
       const dash = await apiRequest('/finance/dashboard').catch(() => null);
       if (dash) setDashboardSummary(dash);
     } catch (e: any) {
-      console.warn('Network error loading shift data:', e);
-      setCurrentShift(null);
+      console.warn('Network error loading shift data, using offline state:', e);
+      try {
+        const raw = localStorage.getItem('lspot_offline_active_shift');
+        if (raw) {
+          const cached = JSON.parse(raw);
+          setCurrentShift(cached);
+          setActualCash(Number(cached.expectedCash || 0));
+        }
+      } catch {}
       setShiftHistory((prev) => (prev.length > 0 ? prev : []));
     } finally {
       setIsLoading(false);
@@ -128,6 +138,17 @@ export function ShiftsView() {
         body: JSON.stringify({ openingFloat: Number(openFloat) })
       });
       setShowOpenModal(false);
+      const opened = res || {
+        id: `offline-shift-${Date.now()}`,
+        status: 'OPEN',
+        openingFloat: Number(openFloat),
+        expectedCash: Number(openFloat),
+        openedAt: new Date().toISOString()
+      };
+      setCurrentShift(opened);
+      try {
+        localStorage.setItem('lspot_offline_active_shift', JSON.stringify(opened));
+      } catch {}
       loadShifts();
       window.dispatchEvent(new CustomEvent('shiftUpdated'));
       toast.success(`Cashier shift opened with starting float of ${formatZMW(Number(openFloat))}.`, 'Shift Opened');
@@ -150,9 +171,13 @@ export function ShiftsView() {
       });
       setShowCloseModal(false);
       setSupervisorPin('');
+      setCurrentShift(null);
+      try {
+        localStorage.removeItem('lspot_offline_active_shift');
+      } catch {}
       loadShifts();
       window.dispatchEvent(new CustomEvent('shiftUpdated'));
-      const variance = res.reconciliation?.variance || 0;
+      const variance = res?.reconciliation?.variance || 0;
       if (variance === 0) {
         toast.success('Shift balanced perfectly with zero cash variance (K 0.00)!', 'Shift Balanced & Closed');
       } else {

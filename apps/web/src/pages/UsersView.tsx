@@ -196,10 +196,23 @@ export function UsersView() {
     setIsLoading(true);
     try {
       const data = await apiRequest('/auth/users');
-      if (data) setUsers(data);
+      if (data && Array.isArray(data)) {
+        setUsers(data);
+        try {
+          localStorage.setItem('lspot_cached_staff_roster', JSON.stringify(data));
+        } catch {}
+      }
     } catch (e: any) {
-      console.warn('Network error loading users:', e);
-      setUsers((prev) => (prev.length > 0 ? prev : []));
+      console.warn('Network error loading users, checking offline roster:', e);
+      try {
+        const raw = localStorage.getItem('lspot_cached_staff_roster');
+        if (raw) {
+          const cached = JSON.parse(raw);
+          if (Array.isArray(cached) && cached.length > 0) {
+            setUsers(cached);
+          }
+        }
+      } catch {}
     } finally {
       setIsLoading(false);
     }
