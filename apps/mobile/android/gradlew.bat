@@ -30,3 +30,4 @@ if not exist "%LOCAL_GRADLE_BIN%" (
 
 call "%LOCAL_GRADLE_BIN%" %*
 endlocal
+
