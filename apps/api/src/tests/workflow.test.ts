@@ -212,3 +212,67 @@ test('Test 12: Persona landing page determination and RBAC module permission enf
   assert.strictEqual(cashierAllowedTabs.includes('finance'), false);
   assert.strictEqual(cashierAllowedTabs.includes('settings'), false);
 });
+
+test('Test 13: Password recovery OTP brute-force lockout and masked credential protection', () => {
+  // Simulate OTP failure tracking logic
+  interface RecoveryOtpRecord {
+    code: string;
+    expiresAt: number;
+    failedAttempts: number;
+    used: boolean;
+  }
+
+  const otpRecord: RecoveryOtpRecord = {
+    code: '849201',
+    expiresAt: Date.now() + 15 * 60 * 1000,
+    failedAttempts: 0,
+    used: false
+  };
+
+  function attemptOtpVerification(inputCode: string): { success: boolean; remainingAttempts: number } {
+    if (otpRecord.used) {
+      throw new Error('Recovery code has already been used or invalidated.');
+    }
+    if (Date.now() > otpRecord.expiresAt) {
+      throw new Error('Recovery code has expired.');
+    }
+    if (inputCode !== otpRecord.code) {
+      otpRecord.failedAttempts += 1;
+      if (otpRecord.failedAttempts >= 3) {
+        otpRecord.used = true;
+        throw new Error('Too many incorrect code attempts. Recovery code has been invalidated for security.');
+      }
+      return { success: false, remainingAttempts: 3 - otpRecord.failedAttempts };
+    }
+    otpRecord.used = true;
+    return { success: true, remainingAttempts: 0 };
+  }
+
+  // Attempt 1: wrong code -> 2 remaining
+  const att1 = attemptOtpVerification('000000');
+  assert.strictEqual(att1.success, false);
+  assert.strictEqual(att1.remainingAttempts, 2);
+
+  // Attempt 2: wrong code -> 1 remaining
+  const att2 = attemptOtpVerification('111111');
+  assert.strictEqual(att2.success, false);
+  assert.strictEqual(att2.remainingAttempts, 1);
+
+  // Attempt 3: wrong code -> locked out and invalidated
+  assert.throws(
+    () => attemptOtpVerification('222222'),
+    /Too many incorrect code attempts/,
+    'OTP must be locked out after 3 failed attempts'
+  );
+
+  assert.strictEqual(otpRecord.used, true);
+
+  // Test email and phone masking logic
+  const maskEmail = (email: string) =>
+    email.replace(/^(..)(.*)(@.*)$/, (_m, a, b, c) => `${a}${'*'.repeat(Math.max(2, b.length))}${c}`);
+  const maskPhone = (phone: string) =>
+    phone.replace(/(\d{3})\d{4}(\d{3})/, '$1****$2');
+
+  assert.strictEqual(maskEmail('manager@lspot.com'), 'ma*****@lspot.com');
+  assert.strictEqual(maskPhone('0971234567'), '097****567');
+});

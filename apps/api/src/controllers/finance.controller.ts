@@ -6,20 +6,25 @@ import { UserRole } from '@lspot/shared';
 
 export const financeRouter = Router();
 
-financeRouter.get('/dashboard', authenticate, async (req: RequestWithUser, res: Response) => {
-  try {
-    const rawStart = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
-    const startDate = rawStart && !isNaN(rawStart.getTime()) ? rawStart : undefined;
+financeRouter.get(
+  '/dashboard',
+  authenticate,
+  requireRole(UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT, UserRole.AUDITOR),
+  async (req: RequestWithUser, res: Response) => {
+    try {
+      const rawStart = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+      const startDate = rawStart && !isNaN(rawStart.getTime()) ? rawStart : undefined;
 
-    const rawEnd = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
-    const endDate = rawEnd && !isNaN(rawEnd.getTime()) ? rawEnd : undefined;
+      const rawEnd = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+      const endDate = rawEnd && !isNaN(rawEnd.getTime()) ? rawEnd : undefined;
 
-    const summary = await financeService.getDashboardSummary(req.user!.tenantId, startDate, endDate);
-    return res.json({ success: true, data: summary });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+      const summary = await financeService.getDashboardSummary(req.user!.tenantId, startDate, endDate);
+      return res.json({ success: true, data: summary });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
   }
-});
+);
 
 financeRouter.get('/expense-categories', authenticate, async (req: RequestWithUser, res: Response) => {
   try {
@@ -30,14 +35,19 @@ financeRouter.get('/expense-categories', authenticate, async (req: RequestWithUs
   }
 });
 
-financeRouter.get('/expenses', authenticate, async (req: RequestWithUser, res: Response) => {
-  try {
-    const expenses = await financeService.getExpenses(req.user!.tenantId);
-    return res.json({ success: true, data: expenses });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+financeRouter.get(
+  '/expenses',
+  authenticate,
+  requireRole(UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT, UserRole.AUDITOR),
+  async (req: RequestWithUser, res: Response) => {
+    try {
+      const expenses = await financeService.getExpenses(req.user!.tenantId);
+      return res.json({ success: true, data: expenses });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
   }
-});
+);
 
 financeRouter.post(
   '/expenses',

@@ -284,8 +284,11 @@ export function App() {
         username: string;
         fullName: string;
         maskedEmail?: string;
-        recoveryCode: string;
+        maskedPhone?: string;
+        recoveryCode?: string;
+        supervisorAuthorized?: boolean;
         expiresInMinutes: number;
+        message?: string;
       }>('/auth/request-password-reset', {
         method: 'POST',
         body: JSON.stringify({ username: recoveryUsername.trim() })
@@ -296,6 +299,11 @@ export function App() {
         toast.success(
           `6-digit recovery code generated for @${res.username}`,
           'Recovery Code Ready'
+        );
+      } else {
+        toast.info(
+          res?.message || 'Recovery code generated. For immediate terminal reset, verify with your personal Staff PIN or Manager PIN.',
+          'Reset Request Registered'
         );
       }
     } catch (err: any) {

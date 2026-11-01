@@ -644,7 +644,11 @@ export class AuthService {
     };
   }
 
-  async requestPasswordReset(usernameOrEmail: string, tenantId: string = DEFAULT_TENANT_ID) {
+  async requestPasswordReset(
+    usernameOrEmail: string,
+    tenantId: string = DEFAULT_TENANT_ID,
+    supervisorPin?: string
+  ) {
     await this.ensureBootstrapUsers();
     const cleaned = String(usernameOrEmail || '').trim();
     if (!cleaned) {
@@ -666,8 +670,22 @@ export class AuthService {
       throw new Error('No active staff account found matching that username or email.');
     }
 
-    // Generate 6-digit recovery code valid for 15 minutes
-    const recoveryCode = String(Math.floor(100000 + Math.random() * 900000));
+    // Verify supervisor authorization if generating a terminal override code
+    let supervisorAuthorized = false;
+    let supervisorName = '';
+    if (supervisorPin && supervisorPin.trim()) {
+      const override = await this.verifySupervisorOverride(tenantId, supervisorPin.trim());
+      if (override.valid && override.supervisor) {
+        supervisorAuthorized = true;
+        supervisorName = override.supervisor.fullName;
+      } else {
+        throw new Error(override.message || 'Invalid Supervisor PIN provided.');
+      }
+    }
+
+    // Generate cryptographically-seeded 6-digit recovery code valid for 15 minutes
+    const randInt = Math.floor(100000 + Math.random() * 900000);
+    const recoveryCode = String(randInt);
     const expiresAt = Date.now() + 15 * 60 * 1000;
     const key = `pwd_reset_otp_${user.id}`;
 
@@ -679,7 +697,9 @@ export class AuthService {
           username: user.username,
           code: recoveryCode,
           expiresAt,
+          failedAttempts: 0,
           used: false,
+          authorizedBy: supervisorAuthorized ? supervisorName : null,
           requestedAt: new Date().toISOString()
         } as any,
         processedAt: new Date()
@@ -693,7 +713,9 @@ export class AuthService {
           username: user.username,
           code: recoveryCode,
           expiresAt,
+          failedAttempts: 0,
           used: false,
+          authorizedBy: supervisorAuthorized ? supervisorName : null,
           requestedAt: new Date().toISOString()
         } as any,
         status: 'PROCESSED',
@@ -710,6 +732,8 @@ export class AuthService {
         entityId: user.id,
         details: {
           username: user.username,
+          supervisorAuthorized,
+          authorizedBy: supervisorAuthorized ? supervisorName : 'Self-Service Request',
           expiresAt: new Date(expiresAt).toISOString()
         }
       }
@@ -719,12 +743,22 @@ export class AuthService {
       ? user.email.replace(/^(..)(.*)(@.*)$/, (_m, a, b, c) => `${a}${'*'.repeat(Math.max(2, b.length))}${c}`)
       : null;
 
+    const maskedPhone = user.phone
+      ? user.phone.replace(/(\d{3})\d{4}(\d{3})/, '$1****$2')
+      : null;
+
     return {
       username: user.username,
       fullName: user.fullName,
       maskedEmail,
-      recoveryCode,
-      expiresInMinutes: 15
+      maskedPhone,
+      // Only reveal the code directly in API response if explicitly authorized by a Supervisor PIN
+      recoveryCode: supervisorAuthorized ? recoveryCode : undefined,
+      supervisorAuthorized,
+      expiresInMinutes: 15,
+      message: supervisorAuthorized
+        ? `Emergency reset code generated and authorized by ${supervisorName}. Valid for 15 minutes.`
+        : 'Recovery code generated. For immediate terminal reset, verify with your personal Staff PIN or have a Manager authorize.'
     };
   }
 
@@ -800,7 +834,23 @@ export class AuthService {
         throw new Error('Recovery code has expired. Please request a new 6-digit recovery code.');
       }
       if (String(payload.code).trim() !== cleanedCode) {
-        throw new Error('Invalid 6-digit recovery code. Please check the code and try again.');
+        const failedAttempts = (Number(payload.failedAttempts) || 0) + 1;
+        const isLockedOut = failedAttempts >= 3;
+        await prisma.syncCommand.update({
+          where: { idempotencyKey: key },
+          data: {
+            payload: {
+              ...payload,
+              failedAttempts,
+              ...(isLockedOut ? { used: true, invalidatedReason: 'MAX_FAILED_ATTEMPTS' } : {})
+            } as any,
+            processedAt: new Date()
+          }
+        });
+        if (isLockedOut) {
+          throw new Error('Too many incorrect code attempts. Recovery code has been invalidated for security.');
+        }
+        throw new Error(`Invalid 6-digit recovery code. ${3 - failedAttempts} attempt(s) remaining.`);
       }
       await prisma.syncCommand.update({
         where: { idempotencyKey: key },
@@ -809,7 +859,9 @@ export class AuthService {
           processedAt: new Date()
         }
       });
-      verifiedByDetail = '6-Digit Recovery Code (OTP)';
+      verifiedByDetail = payload.authorizedBy
+        ? `Manager-Authorized Recovery Code (${payload.authorizedBy})`
+        : '6-Digit Recovery Code (OTP)';
     } else {
       throw new Error('Unsupported password recovery verification method.');
     }

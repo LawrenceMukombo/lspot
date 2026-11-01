@@ -175,7 +175,7 @@ authRouter.get('/me', authenticate, async (req: RequestWithUser, res: Response) 
   });
 });
 
-authRouter.get('/biometrics', async (_req: RequestWithUser, res: Response) => {
+authRouter.get('/biometrics', rateLimitAuth(30, 5 * 60 * 1000), async (_req: RequestWithUser, res: Response) => {
   try {
     const list = await authService.getBiometricRegistry();
     return res.json({ success: true, data: list });
@@ -223,7 +223,7 @@ authRouter.delete('/biometrics/:userId/:type', authenticate, async (req: Request
   }
 });
 
-authRouter.post('/biometric-login', async (req: RequestWithUser, res: Response) => {
+authRouter.post('/biometric-login', rateLimitAuth(10, 5 * 60 * 1000), async (req: RequestWithUser, res: Response) => {
   try {
     const { credentialId, userId, username, type } = (req.body as any) || {};
     if (!credentialId && !userId) {
@@ -252,13 +252,22 @@ authRouter.post(
   rateLimitAuth(8, 10 * 60 * 1000),
   async (req: RequestWithUser, res: Response) => {
     try {
-      const { username, email, tenantId } = (req.body as any) || {};
-      const result = await authService.requestPasswordReset(username || email || '', tenantId);
+      const { username, email, tenantId, supervisorPin } = (req.body as any) || {};
+      const result = await authService.requestPasswordReset(username || email || '', tenantId, supervisorPin);
       return res.json({
         success: true,
-        message: `Recovery code generated for @${result.username}. Valid for ${result.expiresInMinutes} minutes.`,
+        message: result.message,
         data: result
       });
+    } catch (err: any) {
+      return res.status(400).json({
+        success: false,
+        message: err.message || 'Failed to generate password recovery code.',
+        code: 'PASSWORD_RESET_REQUEST_FAILED'
+      });
+    }
+  }
+);
     } catch (err: any) {
       return res.status(400).json({
         success: false,
