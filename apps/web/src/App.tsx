@@ -9,7 +9,8 @@ import {
   ShieldAlert,
   RefreshCw,
   CheckCircle2,
-  X
+  X,
+  ArrowRight
 } from 'lucide-react';
 import { Navbar } from './components/Navbar.js';
 import { Sidebar, NavTab } from './components/Sidebar.js';
@@ -21,6 +22,13 @@ import { RESTAURANT_NAME, RESTAURANT_LOCATION } from '@lspot/shared';
 import { SplashScreen } from './components/SplashScreen.js';
 import { BiometricScannerModal } from './components/BiometricScannerModal.js';
 import { BiometricCredentialRecord, loginWithBiometricSession, syncBiometricsFromServer } from './utils/biometrics.js';
+import {
+  isTabAllowedForRole,
+  getDefaultLandingTab,
+  getCurrentUserProfile,
+  getPersonaInfo,
+  UserProfile
+} from './utils/rbac.js';
 
 import { DashboardView } from './pages/DashboardView.js';
 import { PosView } from './pages/PosView.js';
@@ -43,7 +51,11 @@ export function App() {
     }
     return true;
   });
-  const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => getCurrentUserProfile());
+  const [currentTab, setCurrentTab] = useState<NavTab>(() => {
+    const profile = getCurrentUserProfile();
+    return getDefaultLandingTab(profile?.role);
+  });
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => Boolean(getAuthToken()));
   const [loginMode, setLoginMode] = useState<'credentials' | 'pin'>('credentials');
   const [username, setUsername] = useState('');
@@ -71,13 +83,36 @@ export function App() {
     syncAllOfflineData().catch(() => {});
   }, []);
 
+  const handleSelectTab = (tab: NavTab) => {
+    if (!isTabAllowedForRole(tab, currentUser?.role)) {
+      const persona = getPersonaInfo(currentUser?.role);
+      toast.warning(
+        `Access to this module is restricted for the ${persona.title} persona.`,
+        'Permission Denied'
+      );
+      return;
+    }
+    setCurrentTab(tab);
+  };
+
   useEffect(() => {
-    const onAuthRequired = () => setIsAuthenticated(false);
-    const onAuthSuccess = () => setIsAuthenticated(true);
+    const onAuthRequired = () => {
+      setIsAuthenticated(false);
+      setCurrentUser(null);
+    };
+
+    const onAuthSuccess = () => {
+      setIsAuthenticated(true);
+      const profile = getCurrentUserProfile();
+      setCurrentUser(profile);
+      const landing = getDefaultLandingTab(profile?.role);
+      setCurrentTab(landing);
+    };
+
     const onNavigateTab = (e: Event) => {
       const custom = e as CustomEvent<NavTab>;
       if (custom.detail) {
-        setCurrentTab(custom.detail);
+        handleSelectTab(custom.detail);
       }
     };
 
@@ -90,7 +125,7 @@ export function App() {
       window.removeEventListener('authSuccess', onAuthSuccess);
       window.removeEventListener('navigateTab', onNavigateTab);
     };
-  }, []);
+  }, [currentUser?.role]);
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -724,33 +759,57 @@ export function App() {
         <Navbar />
 
         <div className="flex-1 flex overflow-hidden">
-          <Sidebar currentTab={currentTab} onSelectTab={setCurrentTab} />
+          <Sidebar currentTab={currentTab} userRole={currentUser?.role} onSelectTab={handleSelectTab} />
 
           <main className="flex-1 p-6 overflow-y-auto bg-slate-950 transition-colors duration-200">
             <div className="max-w-7xl mx-auto">
-              <ErrorBoundary>
-                <Suspense
-                  fallback={
-                    <div className="p-8 text-center text-xs text-slate-400 font-semibold">
-                      Loading workspace module...
-                    </div>
-                  }
-                >
-                  {currentTab === 'dashboard' && <DashboardView />}
-                  {currentTab === 'pos' && <PosView />}
-                  {currentTab === 'sales' && <SalesRegisterView />}
-                  {currentTab === 'kitchen' && <KitchenView />}
-                  {currentTab === 'inventory' && <InventoryView />}
-                  {currentTab === 'menu' && <MenuView />}
-                  {currentTab === 'credit' && <CreditView />}
-                  {currentTab === 'invoices' && <InvoicesView />}
-                  {currentTab === 'shifts' && <ShiftsView />}
-                  {currentTab === 'finance' && <FinanceView />}
-                  {currentTab === 'zra' && <ZraView />}
-                  {currentTab === 'users' && <UsersView />}
-                  {currentTab === 'settings' && <SettingsView />}
-                </Suspense>
-              </ErrorBoundary>
+              {!isTabAllowedForRole(currentTab, currentUser?.role) ? (
+                <div className="bg-slate-900 border border-rose-900/40 rounded-3xl p-8 max-w-xl mx-auto my-12 text-center space-y-4 shadow-2xl">
+                  <div className="w-16 h-16 rounded-3xl bg-rose-500/10 text-rose-400 flex items-center justify-center mx-auto border border-rose-500/20">
+                    <ShieldAlert className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-white">Module Access Restricted</h2>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Your staff persona (<strong>{getPersonaInfo(currentUser?.role).title}</strong>) is not authorized to access this module.
+                    </p>
+                  </div>
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentTab(getDefaultLandingTab(currentUser?.role))}
+                      className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs inline-flex items-center gap-2 shadow-lg shadow-amber-500/20 transition"
+                    >
+                      <span>Return to {getPersonaInfo(currentUser?.role).landingLabel}</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <ErrorBoundary>
+                  <Suspense
+                    fallback={
+                      <div className="p-8 text-center text-xs text-slate-400 font-semibold">
+                        Loading workspace module...
+                      </div>
+                    }
+                  >
+                    {currentTab === 'dashboard' && <DashboardView />}
+                    {currentTab === 'pos' && <PosView />}
+                    {currentTab === 'sales' && <SalesRegisterView />}
+                    {currentTab === 'kitchen' && <KitchenView />}
+                    {currentTab === 'inventory' && <InventoryView />}
+                    {currentTab === 'menu' && <MenuView />}
+                    {currentTab === 'credit' && <CreditView />}
+                    {currentTab === 'invoices' && <InvoicesView />}
+                    {currentTab === 'shifts' && <ShiftsView />}
+                    {currentTab === 'finance' && <FinanceView />}
+                    {currentTab === 'zra' && <ZraView />}
+                    {currentTab === 'users' && <UsersView />}
+                    {currentTab === 'settings' && <SettingsView />}
+                  </Suspense>
+                </ErrorBoundary>
+              )}
             </div>
           </main>
         </div>

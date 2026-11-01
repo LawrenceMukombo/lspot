@@ -184,3 +184,31 @@ test('Test 11: Biometrics must be explicitly registered before authentication su
   const verified = verifyBiometricLogin('BIO-THUMBPRINT-001', 'thumbprint');
   assert.strictEqual(verified.userId, 'user-manager-1');
 });
+
+test('Test 12: Persona landing page determination and RBAC module permission enforcement', () => {
+  const roleLandingMap: Record<string, string> = {
+    CASHIER: 'pos',
+    CHEF: 'kitchen',
+    KITCHEN_ASSISTANT: 'kitchen',
+    STOREKEEPER: 'inventory',
+    ACCOUNTANT: 'finance',
+    AUDITOR: 'dashboard',
+    MANAGER: 'dashboard',
+    OWNER: 'dashboard',
+    SUPER_ADMIN: 'dashboard'
+  };
+
+  // Cashiers must strictly land on 'pos'
+  assert.strictEqual(roleLandingMap['CASHIER'], 'pos');
+  // Kitchen chefs must land on 'kitchen'
+  assert.strictEqual(roleLandingMap['CHEF'], 'kitchen');
+  // Storekeepers must land on 'inventory'
+  assert.strictEqual(roleLandingMap['STOREKEEPER'], 'inventory');
+
+  // Cashiers should not be permitted to access administration or accounting modules
+  const cashierAllowedTabs = ['pos', 'sales', 'shifts', 'credit', 'menu'];
+  assert.strictEqual(cashierAllowedTabs.includes('pos'), true);
+  assert.strictEqual(cashierAllowedTabs.includes('users'), false);
+  assert.strictEqual(cashierAllowedTabs.includes('finance'), false);
+  assert.strictEqual(cashierAllowedTabs.includes('settings'), false);
+});

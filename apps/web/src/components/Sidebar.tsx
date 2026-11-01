@@ -15,8 +15,10 @@ import {
   ChevronDown,
   ChevronRight,
   Menu,
-  X
+  X,
+  Shield
 } from 'lucide-react';
+import { isTabAllowedForRole, getPersonaInfo } from '../utils/rbac.js';
 
 export type NavTab =
   | 'dashboard'
@@ -35,6 +37,7 @@ export type NavTab =
 
 interface SidebarProps {
   currentTab: NavTab;
+  userRole?: string;
   onSelectTab: (tab: NavTab) => void;
 }
 
@@ -44,11 +47,12 @@ interface NavGroup {
   items: Array<{ id: NavTab; label: string; icon: React.ComponentType<{ className?: string }> }>;
 }
 
-export function Sidebar({ currentTab, onSelectTab }: SidebarProps) {
+export function Sidebar({ currentTab, userRole, onSelectTab }: SidebarProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [mobileOpen, setMobileOpen] = useState(false);
+  const persona = getPersonaInfo(userRole);
 
-  const navGroups: NavGroup[] = [
+  const rawNavGroups: NavGroup[] = [
     {
       id: 'overview',
       title: 'Executive Overview',
@@ -94,6 +98,16 @@ export function Sidebar({ currentTab, onSelectTab }: SidebarProps) {
     }
   ];
 
+  // Role-Based Module Access Control: only show modules and categories assigned to this persona
+  const navGroups = rawNavGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => isTabAllowedForRole(item.id, userRole))
+    }))
+    .filter((group) => group.items.length > 0);
+
+  const totalAllowedModules = navGroups.reduce((acc, g) => acc + g.items.length, 0);
+
   const toggleGroup = (groupId: string) => {
     setCollapsedGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
   };
@@ -105,52 +119,65 @@ export function Sidebar({ currentTab, onSelectTab }: SidebarProps) {
 
   const sidebarContent = (
     <div className="flex flex-col justify-between h-full">
-      <nav aria-label="Main Navigation" className="space-y-3 overflow-y-auto pr-1">
-        {navGroups.map((group) => {
-          const isCollapsed = Boolean(collapsedGroups[group.id]);
-          return (
-            <div key={group.id} className="space-y-1">
-              <button
-                type="button"
-                aria-expanded={!isCollapsed}
-                onClick={() => toggleGroup(group.id)}
-                className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200 transition rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500"
-              >
-                <span>{group.title}</span>
-                {isCollapsed ? (
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
-                ) : (
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
-                )}
-              </button>
+      <div className="space-y-3 overflow-y-auto pr-1">
+        {/* Active Persona Badge */}
+        <div className="px-3 py-2 rounded-xl bg-slate-950/70 border border-slate-800 text-xs">
+          <div className="flex items-center gap-1.5 text-amber-400 font-bold">
+            <Shield className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+            <span className="truncate">{persona.title}</span>
+          </div>
+          <p className="text-[10px] text-slate-400 mt-0.5">
+            {totalAllowedModules} assigned module{totalAllowedModules === 1 ? '' : 's'} • Landing: {persona.landingLabel}
+          </p>
+        </div>
 
-              {!isCollapsed && (
-                <div className="space-y-1">
-                  {group.items.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = currentTab === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => handleSelect(item.id)}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition ${
-                          isActive
-                            ? 'bg-amber-500 text-slate-950 font-bold shadow-lg shadow-amber-500/20'
-                            : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
-                        }`}
-                      >
-                        <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-slate-950' : 'text-slate-400'}`} />
-                        <span className="truncate text-left">{item.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </nav>
+        <nav aria-label="Main Navigation" className="space-y-3">
+          {navGroups.map((group) => {
+            const isCollapsed = Boolean(collapsedGroups[group.id]);
+            return (
+              <div key={group.id} className="space-y-1">
+                <button
+                  type="button"
+                  aria-expanded={!isCollapsed}
+                  onClick={() => toggleGroup(group.id)}
+                  className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200 transition rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500"
+                >
+                  <span>{group.title}</span>
+                  {isCollapsed ? (
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                  )}
+                </button>
+
+                {!isCollapsed && (
+                  <div className="space-y-1">
+                    {group.items.map((item) => {
+                      const Icon = item.icon;
+                      const isActive = currentTab === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => handleSelect(item.id)}
+                          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition ${
+                            isActive
+                              ? 'bg-amber-500 text-slate-950 font-bold shadow-lg shadow-amber-500/20'
+                              : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
+                          }`}
+                        >
+                          <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-slate-950' : 'text-slate-400'}`} />
+                          <span className="truncate text-left">{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </nav>
+      </div>
 
       <div className="p-3 mt-4 bg-slate-950/60 border border-slate-800 rounded-xl text-xs text-slate-400">
         <div className="flex items-center justify-between text-slate-300 font-semibold mb-1">
