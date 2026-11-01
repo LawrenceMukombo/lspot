@@ -268,15 +268,6 @@ authRouter.post(
     }
   }
 );
-    } catch (err: any) {
-      return res.status(400).json({
-        success: false,
-        message: err.message || 'Failed to generate password recovery code.',
-        code: 'PASSWORD_RESET_REQUEST_FAILED'
-      });
-    }
-  }
-);
 
 authRouter.post(
   '/reset-password',

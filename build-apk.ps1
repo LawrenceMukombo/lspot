@@ -36,23 +36,30 @@ if (-not (Test-Path $PlatformDir)) {
     Write-Host "`n[2/4] Android SDK 34 detected at $AndroidSdkDir" -ForegroundColor Green
 }
 
-# 3. Write local.properties for Gradle
+# 3. Ensure launcher icons are generated
+powershell.exe -ExecutionPolicy Bypass -File apps/mobile/scripts/generate-icons.ps1
+
+# 4. Write local.properties for Gradle
 $AndroidProjectDir = "C:\lrm\apps\mobile\android"
 $EscapedSdk = $AndroidSdkDir.Replace("\", "\\")
 Set-Content -Path (Join-Path $AndroidProjectDir "local.properties") -Value "sdk.dir=$EscapedSdk" -Encoding ASCII
 
-# 4. Run Gradle wrapper to assemble Debug APK
+# 5. Run Gradle wrapper to assemble signed Release & Debug APKs with V1 and V2 signatures
 Write-Host "`n[3/4] Compiling Android APK via Gradle 8.5..." -ForegroundColor Cyan
 Set-Location $AndroidProjectDir
-& .\gradlew.bat assembleDebug
+& .\gradlew.bat assembleRelease assembleDebug
 
-$BuiltApk = "C:\lrm\apps\mobile\android\app\build\outputs\apk\debug\app-debug.apk"
+$ReleaseApk = "C:\lrm\apps\mobile\android\app\build\outputs\apk\release\app-release.apk"
+$DebugApk = "C:\lrm\apps\mobile\android\app\build\outputs\apk\debug\app-debug.apk"
 $DestApk = "C:\lrm\LSpot-Restaurant-POS.apk"
 
-if (Test-Path $BuiltApk) {
-    Copy-Item -Path $BuiltApk -Destination $DestApk -Force
+$SelectedApk = if (Test-Path $ReleaseApk) { $ReleaseApk } else { $DebugApk }
+
+if (Test-Path $SelectedApk) {
+    Copy-Item -Path $SelectedApk -Destination $DestApk -Force
     Write-Host "`n==========================================================" -ForegroundColor Green
     Write-Host "  [4/4] APK BUILT SUCCESSFULLY!" -ForegroundColor Green
+    Write-Host "  Source: $SelectedApk" -ForegroundColor Cyan
     Write-Host "  APK File: $DestApk" -ForegroundColor Yellow
     Write-Host "==========================================================" -ForegroundColor Green
 }
