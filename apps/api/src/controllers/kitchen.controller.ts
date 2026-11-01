@@ -11,7 +11,7 @@ import { UserRole } from '@lspot/shared';
 
 export const kitchenRouter = Router();
 
-kitchenRouter.get('/registers/today', authenticate, async (req: RequestWithUser, res: Response) => {
+kitchenRouter.get(['/registers/today', '/register/today'], authenticate, async (req: RequestWithUser, res: Response) => {
   try {
     const register = await kitchenService.getTodayRegister(
       req.user!.tenantId,
@@ -24,7 +24,7 @@ kitchenRouter.get('/registers/today', authenticate, async (req: RequestWithUser,
 });
 
 kitchenRouter.post(
-  '/registers/open',
+  ['/registers/open', '/register/open'],
   authenticate,
   requireRole(UserRole.OWNER, UserRole.MANAGER, UserRole.CHEF),
   async (req: RequestWithUser, res: Response) => {
@@ -101,7 +101,7 @@ kitchenRouter.post(
 );
 
 kitchenRouter.post(
-  '/registers/close',
+  ['/registers/close', '/register/close'],
   authenticate,
   requireRole(UserRole.OWNER, UserRole.MANAGER, UserRole.CHEF),
   async (req: RequestWithUser, res: Response) => {

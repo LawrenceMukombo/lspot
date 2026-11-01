@@ -8,6 +8,7 @@
     "apps/*"
   ],
   "scripts": {
+    "start": "node apps/api/dist/main.js",
     "build": "turbo run build",
     "dev": "turbo run dev",
     "test": "turbo run test",
