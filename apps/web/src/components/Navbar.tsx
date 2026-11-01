@@ -399,6 +399,9 @@ export function Navbar({ activeShift }: NavbarProps) {
         setShowChangePasswordModal(false);
       }, 1300);
     } catch (err: any) {
+      setCurrentPasswordOrPin('');
+      setNewPasswordInput('');
+      setConfirmPasswordInput('');
       setChangePasswordError(err?.message || 'Failed to update password.');
     } finally {
       setIsChangingPassword(false);
@@ -663,8 +666,13 @@ export function Navbar({ activeShift }: NavbarProps) {
                 </label>
                 <input
                   type="password"
+                  autoComplete="new-password"
                   required
                   value={currentPasswordOrPin}
+                  onFocus={() => {
+                    setCurrentPasswordOrPin('');
+                    if (changePasswordError) setChangePasswordError(null);
+                  }}
                   onChange={(e) => setCurrentPasswordOrPin(e.target.value)}
                   placeholder="Enter current password or 4–6 digit PIN"
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500"
@@ -677,9 +685,14 @@ export function Navbar({ activeShift }: NavbarProps) {
                 </label>
                 <input
                   type="password"
+                  autoComplete="new-password"
                   required
                   minLength={6}
                   value={newPasswordInput}
+                  onFocus={() => {
+                    setNewPasswordInput('');
+                    if (changePasswordError) setChangePasswordError(null);
+                  }}
                   onChange={(e) => setNewPasswordInput(e.target.value)}
                   placeholder="Minimum 6 characters"
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500"
@@ -692,9 +705,14 @@ export function Navbar({ activeShift }: NavbarProps) {
                 </label>
                 <input
                   type="password"
+                  autoComplete="new-password"
                   required
                   minLength={6}
                   value={confirmPasswordInput}
+                  onFocus={() => {
+                    setConfirmPasswordInput('');
+                    if (changePasswordError) setChangePasswordError(null);
+                  }}
                   onChange={(e) => setConfirmPasswordInput(e.target.value)}
                   placeholder="Repeat new password"
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500"

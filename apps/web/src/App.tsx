@@ -79,6 +79,8 @@ export function App() {
   const [isRequestingCode, setIsRequestingCode] = useState(false);
 
   useEffect(() => {
+    setPassword('');
+    setPin('');
     syncBiometricsFromServer().catch(() => {});
     syncAllOfflineData().catch(() => {});
   }, []);
@@ -99,6 +101,9 @@ export function App() {
     const onAuthRequired = () => {
       setIsAuthenticated(false);
       setCurrentUser(null);
+      setPassword('');
+      setPin('');
+      setAuthError(null);
     };
 
     const onAuthSuccess = () => {
@@ -229,6 +234,8 @@ export function App() {
         }
       }
 
+      setPassword('');
+      setPin('');
       setAuthError(err.message || 'Authentication failed. Please check your credentials.');
     } finally {
       setIsSubmitting(false);
@@ -287,6 +294,8 @@ export function App() {
   };
 
   const handleOpenRecoveryModal = () => {
+    setPassword('');
+    setPin('');
     setRecoveryUsername(username.trim());
     setRecoveryMethod('STAFF_PIN');
     setRecoveryPinOrCode('');
@@ -431,6 +440,8 @@ export function App() {
                 type="button"
                 onClick={() => {
                   setLoginMode('credentials');
+                  setPassword('');
+                  setPin('');
                   setAuthError(null);
                 }}
                 className={`py-2 rounded-lg flex items-center justify-center gap-1.5 transition ${
@@ -444,6 +455,8 @@ export function App() {
                 type="button"
                 onClick={() => {
                   setLoginMode('pin');
+                  setPassword('');
+                  setPin('');
                   setAuthError(null);
                 }}
                 className={`py-2 rounded-lg flex items-center justify-center gap-1.5 transition ${
@@ -495,38 +508,71 @@ export function App() {
                       Forgot Password? Recover / Reset
                     </button>
                   </div>
-                  <input
-                    id="login-password"
-                    type="password"
-                    autoComplete="current-password"
-                    required
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                      if (authError) setAuthError(null);
-                    }}
-                    placeholder="Enter your password"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500"
-                  />
+                  <div className="relative">
+                    <input
+                      id="login-password"
+                      type="password"
+                      autoComplete="new-password"
+                      required
+                      value={password}
+                      onFocus={() => {
+                        setPassword('');
+                        if (authError) setAuthError(null);
+                      }}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        if (authError) setAuthError(null);
+                      }}
+                      placeholder="Enter your password"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 pr-10 text-sm text-white focus:outline-none focus:border-amber-500"
+                    />
+                    {password.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setPassword('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1 rounded-lg transition"
+                        title="Clear password"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div>
                   <label htmlFor="login-pin" className="block text-xs font-semibold text-slate-400 mb-1">
                     4 to 6 Digit Staff PIN
                   </label>
-                  <input
-                    id="login-pin"
-                    type="password"
-                    required
-                    maxLength={6}
-                    value={pin}
-                    onChange={(e) => {
-                      setPin(e.target.value);
-                      if (authError) setAuthError(null);
-                    }}
-                    placeholder="••••"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-center font-mono text-lg tracking-widest text-amber-400 focus:outline-none focus:border-amber-500"
-                  />
+                  <div className="relative">
+                    <input
+                      id="login-pin"
+                      type="password"
+                      autoComplete="off"
+                      required
+                      maxLength={6}
+                      value={pin}
+                      onFocus={() => {
+                        setPin('');
+                        if (authError) setAuthError(null);
+                      }}
+                      onChange={(e) => {
+                        setPin(e.target.value);
+                        if (authError) setAuthError(null);
+                      }}
+                      placeholder="••••"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-center font-mono text-lg tracking-widest text-amber-400 focus:outline-none focus:border-amber-500"
+                    />
+                    {pin.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setPin('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1 rounded-lg transition"
+                        title="Clear PIN"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 

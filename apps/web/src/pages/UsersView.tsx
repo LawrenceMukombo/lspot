@@ -651,7 +651,11 @@ export function UsersView() {
           </div>
 
           <button
-            onClick={() => setShowOverrideTester(true)}
+            onClick={() => {
+              setTestPin('');
+              setOverrideResult(null);
+              setShowOverrideTester(true);
+            }}
             className="flex items-center gap-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700 transition"
           >
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
@@ -1024,8 +1028,10 @@ export function UsersView() {
                   </label>
                   <input
                     type="password"
+                    autoComplete="new-password"
                     maxLength={6}
                     value={supervisorPin}
+                    onFocus={() => setSupervisorPin('')}
                     onChange={(e) => setSupervisorPin(e.target.value)}
                     placeholder="Enter 4-6 digit PIN"
                     className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500 font-mono text-emerald-600 dark:text-emerald-400 font-bold"
@@ -1037,7 +1043,9 @@ export function UsersView() {
                   </label>
                   <input
                     type="password"
+                    autoComplete="new-password"
                     value={password}
+                    onFocus={() => setPassword('')}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder={editingUser ? 'Leave blank to retain' : 'Enter password'}
                     className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-slate-200 focus:outline-none focus:border-amber-500"
@@ -1321,8 +1329,13 @@ export function UsersView() {
             <div className="space-y-3">
               <input
                 type="password"
+                autoComplete="off"
                 maxLength={6}
                 value={testPin}
+                onFocus={() => {
+                  setTestPin('');
+                  setOverrideResult(null);
+                }}
                 onChange={(e) => setTestPin(e.target.value)}
                 placeholder="Enter 4-digit PIN"
                 className="w-full text-center text-2xl font-mono font-black tracking-widest bg-slate-950 border border-slate-800 rounded-2xl py-3 focus:outline-none focus:border-amber-500 text-amber-400"
