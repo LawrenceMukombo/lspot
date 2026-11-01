@@ -176,10 +176,20 @@ export class PosService {
     });
 
     const creditPayment = data.payments.find((p: any) => p.method === PaymentMethod.CUSTOMER_CREDIT);
-    const saleNumber = `SALE-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
+    const { startOfDayLusaka, businessDateUtc } = getLusakaBusinessDateBounds();
+
+    // Daily sequential order number (#001, #002, #003...) resetting at Lusaka midnight
+    const todaySalesCount = await prisma.sale.count({
+      where: {
+        tenantId,
+        createdAt: { gte: startOfDayLusaka }
+      }
+    });
+    const orderSeq = todaySalesCount + 1;
+    const orderNumber = `#${String(orderSeq).padStart(3, '0')}`;
+    const saleNumber = `ORD-${String(orderSeq).padStart(3, '0')}-${Date.now().toString().slice(-4)}`;
 
     const ensuredTodayRegister = await kitchenService.getTodayRegister(tenantId, branchId);
-    const { businessDateUtc } = getLusakaBusinessDateBounds();
 
     // 3. Atomic Execution: Pre-flight validation + Sale + Items + Payments + Stock/Kitchen Update + Customer Balance + Shift Cash
     return prisma.$transaction(async (tx: any) => {
@@ -369,6 +379,7 @@ export class PosService {
           zraStatus: saleZraStatus,
           fiscalInvoiceNo: autoFiscalCode,
           idempotencyKey: data.idempotencyKey,
+          notes: data.notes ? `[${orderNumber}] ${data.notes}` : `[${orderNumber}]`,
           items: {
             create: resolvedLineItems.map((i) => ({
               menuItemId: i.menuItem.id,
@@ -505,6 +516,7 @@ export class PosService {
           entityId: sale.id,
           details: {
             id: sale.id,
+            orderNumber,
             saleNumber: sale.saleNumber,
             orderType: sale.orderType,
             tableNumber: sale.tableNumber,
@@ -519,7 +531,10 @@ export class PosService {
         }
       });
 
-      return sale;
+      return {
+        ...sale,
+        orderNumber
+      };
     });
   }
 
@@ -883,7 +898,7 @@ export class PosService {
         createdAt: { gte: startOfDayLusaka }
       },
       orderBy: { createdAt: 'desc' },
-      take: 50
+      take: 200
     });
 
     const latestByTicketId = new Map<string, any>();
@@ -894,9 +909,10 @@ export class PosService {
       }
     }
 
-    return Array.from(latestByTicketId.values()).filter(
-      (t) => t && t.status !== 'SERVED' && t.status !== 'READY'
-    );
+    // Return unserved tickets sorted strictly in order of appearance (FIFO)
+    return Array.from(latestByTicketId.values())
+      .filter((t) => t && t.status !== 'SERVED' && t.status !== 'READY')
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }
 
   async updateKdsTicketStatus(tenantId: string, userId: string, ticketId: string, status: 'QUEUED' | 'COOKING' | 'READY' | 'SERVED', ticketData?: any) {

@@ -20,7 +20,8 @@ import {
   Check,
   ToggleLeft,
   ToggleRight,
-  Sliders
+  Sliders,
+  History
 } from 'lucide-react';
 import { apiRequest } from '../api.js';
 import { EnterpriseTable, Column } from '../components/EnterpriseTable.js';
@@ -87,8 +88,11 @@ export function UsersView() {
   const [testPin, setTestPin] = useState('');
   const [overrideResult, setOverrideResult] = useState<any>(null);
 
-  // Tab State: Directory vs Role Privileges Matrix
-  const [activeTab, setActiveTab] = useState<'directory' | 'matrix'>('directory');
+  // Tab State: Directory vs Role Privileges Matrix vs Activity Audit Trail
+  const [activeTab, setActiveTab] = useState<'directory' | 'matrix' | 'audit'>('directory');
+  const [auditEvents, setAuditEvents] = useState<any[]>([]);
+  const [isLoadingAudit, setIsLoadingAudit] = useState(false);
+  const [auditSearch, setAuditSearch] = useState('');
   const [permissionsSavedMsg, setPermissionsSavedMsg] = useState(false);
   const [rolesList, setRolesList] = useState<any[]>([
     {
@@ -198,6 +202,23 @@ export function UsersView() {
       setUsers((prev) => (prev.length > 0 ? prev : []));
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchAuditEvents = async () => {
+    setIsLoadingAudit(true);
+    try {
+      const res = await apiRequest('/auth/audit-events?limit=200');
+      setAuditEvents(Array.isArray(res) ? res : res?.data || []);
+    } catch (err: any) {
+      try {
+        const fallback = await apiRequest('/restaurant/audit-events?limit=200');
+        setAuditEvents(Array.isArray(fallback) ? fallback : fallback?.data || []);
+      } catch (e: any) {
+        toast.warning('Could not load audit log: ' + (e?.message || err?.message));
+      }
+    } finally {
+      setIsLoadingAudit(false);
     }
   };
 
@@ -613,6 +634,20 @@ export function UsersView() {
               <ShieldCheck className="w-3.5 h-3.5" />
               <span>Roles & Permissions Matrix</span>
             </button>
+            <button
+              onClick={() => {
+                setActiveTab('audit');
+                fetchAuditEvents();
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                activeTab === 'audit'
+                  ? 'bg-amber-500 text-slate-950 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <History className="w-3.5 h-3.5" />
+              <span>Activity & Audit Trail</span>
+            </button>
           </div>
 
           <button
@@ -672,7 +707,7 @@ export function UsersView() {
         </div>
       </div>
 
-      {/* Main Content Area: Directory vs Permissions Matrix */}
+      {/* Main Content Area: Directory vs Permissions Matrix vs Audit Log */}
       {activeTab === 'directory' ? (
         <EnterpriseTable
           columns={columns}
@@ -682,7 +717,7 @@ export function UsersView() {
           isLoading={isLoading}
           onRowClick={(row) => handleOpenEdit(row)}
         />
-      ) : (
+      ) : activeTab === 'matrix' ? (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
             <div>
@@ -766,6 +801,144 @@ export function UsersView() {
                     })}
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
+            <div>
+              <div className="flex items-center gap-2.5">
+                <History className="w-5 h-5 text-amber-400" />
+                <h3 className="text-lg font-bold text-white">Staff Activity & Operations Audit Log</h3>
+              </div>
+              <p className="text-xs text-slate-400 mt-1">
+                Immutable chronological ledger of logins, biometric scans, sales checkouts, kitchen cooking batches, and security events.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="Filter by action or staff..."
+                value={auditSearch}
+                onChange={(e) => setAuditSearch(e.target.value)}
+                className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+              />
+              <button
+                type="button"
+                onClick={fetchAuditEvents}
+                disabled={isLoadingAudit}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 border border-slate-700 transition"
+              >
+                {isLoadingAudit ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-slate-300">
+              <thead className="bg-slate-950 uppercase tracking-wider text-[11px] text-slate-400 border-b border-slate-800">
+                <tr>
+                  <th className="px-4 py-3 font-bold">Time (Lusaka)</th>
+                  <th className="px-4 py-3 font-semibold">Staff User</th>
+                  <th className="px-4 py-3 font-semibold">Action / Event</th>
+                  <th className="px-4 py-3 font-semibold">Target Entity</th>
+                  <th className="px-4 py-3 font-semibold">Audit Details</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {auditEvents
+                  .filter((ev) => {
+                    if (!auditSearch.trim()) return true;
+                    const query = auditSearch.toLowerCase();
+                    const actionStr = String(ev.action || '').toLowerCase();
+                    const staffName = String(ev.user?.fullName || ev.user?.username || '').toLowerCase();
+                    const entity = String(ev.entityType || '').toLowerCase();
+                    return actionStr.includes(query) || staffName.includes(query) || entity.includes(query);
+                  })
+                  .map((ev) => {
+                    const dateFormatted = new Date(ev.createdAt).toLocaleString('en-GB', {
+                      timeZone: 'Africa/Lusaka',
+                      day: '2-digit',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit'
+                    });
+                    const isLogin = ev.action?.includes('LOGIN');
+                    const isCheckout = ev.action?.includes('CHECKOUT') || ev.action?.includes('SALE');
+                    const isKitchen = ev.action?.includes('KITCHEN') || ev.action?.includes('KDS');
+                    const isBio = ev.action?.includes('BIOMETRIC');
+
+                    return (
+                      <tr key={ev.id} className="hover:bg-slate-800/40 transition">
+                        <td className="px-4 py-3 font-mono text-slate-400 whitespace-nowrap">
+                          {dateFormatted}
+                        </td>
+                        <td className="px-4 py-3">
+                          {ev.user ? (
+                            <div>
+                              <span className="font-bold text-white block">{ev.user.fullName}</span>
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                @{ev.user.username} • {ev.user.role}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-500 italic">System / Anonymous</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-mono text-[10px] font-bold border ${
+                              isLogin
+                                ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
+                                : isBio
+                                ? 'bg-purple-950/80 text-purple-300 border-purple-800'
+                                : isKitchen
+                                ? 'bg-amber-950/80 text-amber-300 border-amber-800'
+                                : isCheckout
+                                ? 'bg-blue-950/80 text-blue-300 border-blue-800'
+                                : 'bg-slate-800 text-slate-300 border-slate-700'
+                            }`}
+                          >
+                            {ev.action}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-slate-400">
+                          {ev.entityType}
+                          {ev.entityId && (
+                            <span className="text-[10px] text-slate-500 block truncate max-w-[120px]">
+                              {ev.entityId}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-slate-300 max-w-xs truncate">
+                          {typeof ev.details === 'object' && ev.details !== null ? (
+                            <span className="font-mono text-[11px] text-slate-400">
+                              {JSON.stringify(ev.details)}
+                            </span>
+                          ) : (
+                            String(ev.details || '—')
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                {auditEvents.length === 0 && !isLoadingAudit && (
+                  <tr>
+                    <td colSpan={5} className="text-center py-8 text-slate-500">
+                      No operational audit logs recorded yet.
+                    </td>
+                  </tr>
+                )}
+                {isLoadingAudit && (
+                  <tr>
+                    <td colSpan={5} className="text-center py-8 text-amber-400 font-bold">
+                      Loading audit logs...
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

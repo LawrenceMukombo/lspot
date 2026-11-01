@@ -1,8 +1,9 @@
 import { Router, Response } from 'express';
 import { authService } from '../services/auth.service.js';
+import { restaurantService } from '../services/restaurant.service.js';
 import { LoginSchema, VerifyPinSchema } from '@lspot/validation';
 import { authenticate, RequestWithUser, requireRole, rateLimitAuth } from '../middleware/auth.js';
-import { auditMiddleware } from '../middleware/audit.js';
+import { auditMiddleware, logAuditEvent } from '../middleware/audit.js';
 import { UserRole } from '@lspot/shared';
 
 export const authRouter = Router();
@@ -321,6 +322,54 @@ authRouter.post(
         message: err.message || 'Password update failed.',
         code: 'CHANGE_PASSWORD_FAILED'
       });
+    }
+  }
+);
+
+authRouter.post('/logout', authenticate, async (req: RequestWithUser, res: Response) => {
+  try {
+    if (req.user) {
+      await logAuditEvent(req.user.tenantId, req.user.id, 'USER_LOGOUT', 'User', req.user.id, {
+        username: req.user.username,
+        role: req.user.role
+      });
+    }
+    return res.json({ success: true, message: 'Logged out successfully' });
+  } catch (err: any) {
+    return res.json({ success: true });
+  }
+});
+
+authRouter.post('/audit-log', authenticate, async (req: RequestWithUser, res: Response) => {
+  try {
+    const { action, entityType, entityId, details } = (req.body as any) || {};
+    if (action && req.user) {
+      await logAuditEvent(
+        req.user.tenantId,
+        req.user.id,
+        action,
+        entityType || 'UserAction',
+        entityId || null,
+        details || {}
+      );
+    }
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.json({ success: false, message: err.message });
+  }
+});
+
+authRouter.get(
+  '/audit-events',
+  authenticate,
+  requireRole(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER, UserRole.AUDITOR),
+  async (req: RequestWithUser, res: Response) => {
+    try {
+      const limit = req.query.limit ? Number(req.query.limit) : 100;
+      const events = await restaurantService.getAuditEvents(req.user!.tenantId, limit);
+      return res.json({ success: true, data: events });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: err.message });
     }
   }
 );

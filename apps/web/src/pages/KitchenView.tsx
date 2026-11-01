@@ -22,6 +22,7 @@ import { toast } from '../components/Toast.js';
 
 interface KdsTicket {
   id: string;
+  orderNumber?: string;
   saleNumber: string;
   orderType: string;
   tableNumber?: string;
@@ -249,64 +250,24 @@ export function KitchenView() {
 
   const loadActiveKdsTickets = async () => {
     try {
-      const todayLusakaStr = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Africa/Lusaka',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      }).format(new Date());
-      const startOfTodayLusaka = new Date(`${todayLusakaStr}T00:00:00.000+02:00`).getTime();
-
-      const bumpedIds = new Set<string>(JSON.parse(localStorage.getItem('lspot_bumped_kds_ids') || '[]'));
-
-      // Check local storage queue and purge any legacy simulated kds-init-* items or prior-day items
-      const localKdsStr = localStorage.getItem('lspot_active_kds_orders');
-      let localOrders: KdsTicket[] = [];
-      if (localKdsStr) {
+      // Fetch real multi-device KDS tickets from backend for today (FIFO ordered)
+      const backendKds = await apiRequest<KdsTicket[]>('/pos/kds-tickets').catch(() => null);
+      if (Array.isArray(backendKds)) {
+        setKdsTickets(backendKds);
         try {
-          const parsed = JSON.parse(localKdsStr);
-          if (Array.isArray(parsed)) {
-            localOrders = parsed.filter(
-              (t: any) =>
-                t &&
-                t.id &&
-                !String(t.id).startsWith('kds-init-') &&
-                !bumpedIds.has(t.id) &&
-                t.status !== 'READY' &&
-                t.status !== 'SERVED' &&
-                new Date(t.createdAt).getTime() >= startOfTodayLusaka
-            );
-            localStorage.setItem('lspot_active_kds_orders', JSON.stringify(localOrders));
-          }
+          localStorage.setItem('lspot_active_kds_orders', JSON.stringify(backendKds));
         } catch {}
-      }
-
-      // Fetch real multi-device KDS tickets from backend for today
-      const backendKds = await apiRequest('/pos/kds-tickets').catch(() => []);
-      const serverTickets: KdsTicket[] = Array.isArray(backendKds)
-        ? backendKds.filter(
-            (t: any) =>
-              t &&
-              t.id &&
-              !String(t.id).startsWith('kds-init-') &&
-              !bumpedIds.has(t.id) &&
-              t.status !== 'READY' &&
-              t.status !== 'SERVED' &&
-              new Date(t.createdAt).getTime() >= startOfTodayLusaka
-          )
-        : [];
-
-      // Merge local and server tickets avoiding duplicate IDs
-      const combined = [...localOrders];
-      const existingIds = new Set(combined.map((t) => t.id));
-      for (const st of serverTickets) {
-        if (!existingIds.has(st.id)) {
-          combined.push(st);
-          existingIds.add(st.id);
+      } else {
+        const localKdsStr = localStorage.getItem('lspot_active_kds_orders');
+        if (localKdsStr) {
+          try {
+            const parsed = JSON.parse(localKdsStr);
+            if (Array.isArray(parsed)) {
+              setKdsTickets(parsed.filter((t: any) => t && t.status !== 'READY' && t.status !== 'SERVED'));
+            }
+          } catch {}
         }
       }
-
-      setKdsTickets(combined);
     } catch (e) {
       console.warn('Error loading KDS orders:', e);
     }
@@ -349,16 +310,36 @@ export function KitchenView() {
       return;
     }
 
+    const portionsToAdd = Number(actualPortions);
+
+    // Instant optimistic update: increment prepared & remaining portions in table without UI delay
+    if (register && Array.isArray(register.items)) {
+      setRegister((prev: any) => {
+        if (!prev) return prev;
+        const updatedItems = prev.items.map((it: any) => {
+          if ((it.menuItemId || it.menuItem?.id) === batchMenuId) {
+            const newPrepared = Number(it.preparedPortions || 0) + portionsToAdd;
+            const newRemaining = Number(it.remainingPortions || 0) + portionsToAdd;
+            return { ...it, preparedPortions: newPrepared, remainingPortions: newRemaining };
+          }
+          return it;
+        });
+        return { ...prev, items: updatedItems };
+      });
+    }
+
+    setShowBatchModal(false);
+    toast.success(`Recorded cooking batch of ${portionsToAdd} portions.`, 'Cooking Batch Logged');
+
     try {
       let activeRegister = register;
       if (!activeRegister?.id) {
-        // Fetch or auto-open today's register
         activeRegister = await apiRequest('/kitchen/registers/today');
         if (activeRegister) setRegister(activeRegister);
       }
 
       if (!activeRegister?.id) {
-        toast.critical('Active kitchen register could not be initialized. Please check network connection.', 'Kitchen Register Error');
+        toast.critical('Active kitchen register could not be initialized.', 'Kitchen Register Error');
         return;
       }
 
@@ -368,15 +349,16 @@ export function KitchenView() {
           registerId: activeRegister.id,
           menuItemId: batchMenuId,
           plannedPortions: Number(plannedPortions),
-          actualPreparedPortions: Number(actualPortions),
+          actualPreparedPortions: portionsToAdd,
           notes: batchNotes
         })
       });
-      setShowBatchModal(false);
-      toast.success(`Recorded cooking batch of ${actualPortions} portions.`, 'Cooking Batch Logged');
+
+      // Background reload to sync exact stock deductions
       loadRegister();
     } catch (err: any) {
       toast.critical(`Failed to record batch: ${err.message}`, 'Batch Recording Failed');
+      loadRegister();
     }
   };
 
@@ -617,7 +599,12 @@ export function KitchenView() {
                     <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-mono font-black text-white text-base">{ticket.saleNumber}</span>
+                          {ticket.orderNumber && (
+                            <span className="font-mono font-black text-amber-400 text-sm bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-lg shadow-sm">
+                              {ticket.orderNumber}
+                            </span>
+                          )}
+                          <span className="font-mono font-bold text-white text-sm">{ticket.saleNumber}</span>
                           <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-300">
                             {ticket.orderType}
                           </span>
@@ -663,14 +650,18 @@ export function KitchenView() {
                   <div className="pt-3 border-t border-slate-800 flex items-center gap-2 mt-4">
                     {ticket.status !== 'COOKING' ? (
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           setKdsTickets((prev) =>
                             prev.map((t) => (t.id === ticket.id ? { ...t, status: 'COOKING' } : t))
                           );
-                          apiRequest(`/pos/kds-tickets/${encodeURIComponent(ticket.id)}`, {
-                            method: 'PATCH',
-                            body: JSON.stringify({ status: 'COOKING', ticketData: { ...ticket, status: 'COOKING' } })
-                          }).catch(() => {});
+                          try {
+                            await apiRequest(`/pos/kds-tickets/${encodeURIComponent(ticket.id)}/status`, {
+                              method: 'PATCH',
+                              body: JSON.stringify({ status: 'COOKING', ticketData: { ...ticket, status: 'COOKING' } })
+                            });
+                          } catch (err) {
+                            console.warn('Could not sync cooking status to server:', err);
+                          }
                         }}
                         className="flex-1 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
                       >
@@ -684,18 +675,16 @@ export function KitchenView() {
                     )}
 
                     <button
-                      onClick={() => {
-                        const bumped = JSON.parse(localStorage.getItem('lspot_bumped_kds_ids') || '[]');
-                        bumped.push(ticket.id);
-                        localStorage.setItem('lspot_bumped_kds_ids', JSON.stringify(bumped));
-                        const localOrders = JSON.parse(localStorage.getItem('lspot_active_kds_orders') || '[]');
-                        const filtered = localOrders.filter((t: any) => t.id !== ticket.id);
-                        localStorage.setItem('lspot_active_kds_orders', JSON.stringify(filtered));
+                      onClick={async () => {
                         setKdsTickets((prev) => prev.filter((t) => t.id !== ticket.id));
-                        apiRequest(`/pos/kds-tickets/${encodeURIComponent(ticket.id)}`, {
-                          method: 'PATCH',
-                          body: JSON.stringify({ status: 'SERVED', ticketData: { ...ticket, status: 'SERVED' } })
-                        }).catch(() => {});
+                        try {
+                          await apiRequest(`/pos/kds-tickets/${encodeURIComponent(ticket.id)}/status`, {
+                            method: 'PATCH',
+                            body: JSON.stringify({ status: 'SERVED', ticketData: { ...ticket, status: 'SERVED' } })
+                          });
+                        } catch (err) {
+                          console.warn('Could not sync served status to server:', err);
+                        }
                       }}
                       className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 shadow-md shadow-emerald-950"
                     >

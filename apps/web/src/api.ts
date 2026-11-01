@@ -47,11 +47,32 @@ export function setAuthSession(token: string, user?: any): void {
 }
 
 export function logoutSession(): void {
+  try {
+    apiRequest('/auth/logout', { method: 'POST' }).catch(() => {});
+  } catch {
+    // Non-blocking logout notification
+  }
   localStorage.removeItem('lspot_auth_token');
   localStorage.removeItem('lspot_token');
   localStorage.removeItem('lspot_user_profile');
   localStorage.removeItem('lspot_user');
   window.dispatchEvent(new Event('authRequired'));
+}
+
+export async function trackUserAction(
+  action: string,
+  entityType = 'UserAction',
+  entityId?: string,
+  details?: any
+): Promise<void> {
+  try {
+    await apiRequest('/auth/audit-log', {
+      method: 'POST',
+      body: JSON.stringify({ action, entityType, entityId, details })
+    });
+  } catch {
+    // Offline / non-blocking action tracking
+  }
 }
 
 export interface OfflineMutationRecord {

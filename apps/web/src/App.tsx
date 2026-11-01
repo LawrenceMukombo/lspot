@@ -127,8 +127,10 @@ export function App() {
     };
   }, [currentUser?.role]);
 
-  const handleLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleLoginSubmit = async (e?: React.FormEvent) => {
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
     setAuthError(null);
     setIsSubmitting(true);
     try {
@@ -232,6 +234,30 @@ export function App() {
       setIsSubmitting(false);
     }
   };
+
+  // Instant Auto-Login upon completing password entry or 4–6 digit staff PIN
+  useEffect(() => {
+    if (isAuthenticated || isSubmitting || authError) return;
+
+    if (loginMode === 'credentials') {
+      const cleanUser = username.trim();
+      const cleanPass = password;
+      if (cleanUser.length >= 3 && cleanPass.length >= 6) {
+        const timer = setTimeout(() => {
+          handleLoginSubmit();
+        }, 450);
+        return () => clearTimeout(timer);
+      }
+    } else if (loginMode === 'pin') {
+      const cleanPin = pin.trim();
+      if (cleanPin.length === 4 || cleanPin.length === 6) {
+        const timer = setTimeout(() => {
+          handleLoginSubmit();
+        }, 120);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [loginMode, username, password, pin, isAuthenticated, isSubmitting, authError]);
 
   const handleBiometricLoginSuccess = async (record: BiometricCredentialRecord) => {
     setBiometricModalType(null);
@@ -446,7 +472,10 @@ export function App() {
                   autoComplete="username"
                   required={loginMode === 'credentials'}
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={(e) => {
+                    setUsername(e.target.value);
+                    if (authError) setAuthError(null);
+                  }}
                   placeholder="Enter your username"
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500"
                 />
@@ -472,7 +501,10 @@ export function App() {
                     autoComplete="current-password"
                     required
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (authError) setAuthError(null);
+                    }}
                     placeholder="Enter your password"
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500"
                   />
@@ -488,7 +520,10 @@ export function App() {
                     required
                     maxLength={6}
                     value={pin}
-                    onChange={(e) => setPin(e.target.value)}
+                    onChange={(e) => {
+                      setPin(e.target.value);
+                      if (authError) setAuthError(null);
+                    }}
                     placeholder="••••"
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-center font-mono text-lg tracking-widest text-amber-400 focus:outline-none focus:border-amber-500"
                   />

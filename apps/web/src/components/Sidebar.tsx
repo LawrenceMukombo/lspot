@@ -16,7 +16,8 @@ import {
   ChevronRight,
   Menu,
   X,
-  Shield
+  Shield,
+  Fingerprint
 } from 'lucide-react';
 import { isTabAllowedForRole, getPersonaInfo } from '../utils/rbac.js';
 
@@ -129,6 +130,18 @@ export function Sidebar({ currentTab, userRole, onSelectTab }: SidebarProps) {
           <p className="text-[10px] text-slate-400 mt-0.5">
             {totalAllowedModules} assigned module{totalAllowedModules === 1 ? '' : 's'} • Landing: {persona.landingLabel}
           </p>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('openBiometricRegistration'))}
+            className="w-full mt-2 flex items-center justify-between px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-800 text-[10px] font-semibold text-slate-300 hover:text-amber-400 hover:border-amber-500/40 transition active:scale-95"
+            title="Register your Thumbprint or Facial Recognition for 1-second sign in"
+          >
+            <span className="flex items-center gap-1.5">
+              <Fingerprint className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              <span>Enroll Biometrics</span>
+            </span>
+            <span className="text-[9px] text-amber-400/80 uppercase font-mono font-bold">Thumb / Face</span>
+          </button>
         </div>
 
         <nav aria-label="Main Navigation" className="space-y-3">

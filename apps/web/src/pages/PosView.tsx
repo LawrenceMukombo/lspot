@@ -407,8 +407,10 @@ export function PosView() {
       }
 
       // Trigger Kitchen KDS new order chime event
+      const orderNumber = res?.orderNumber || (res?.notes && res.notes.includes('[#') ? res.notes.match(/\[#\d+\]/)?.[0]?.replace(/[\[\]]/g, '') : undefined);
       const kdsOrder = {
         id: res?.id || `kds-${Date.now()}`,
+        orderNumber,
         saleNumber: res?.saleNumber || `ORD-${Date.now().toString().slice(-4)}`,
         orderType,
         tableNumber,
@@ -451,11 +453,12 @@ export function PosView() {
       const receiptTotal = Number(res?.totalAmount ?? payload.totalAmount ?? cartSubtotal);
       const receiptData = {
         ...(res || payload),
-        saleNumber: res?.saleNumber || `SALE-${Date.now().toString().slice(-6)}`,
+        orderNumber,
+        saleNumber: res?.saleNumber || `ORD-${Date.now().toString().slice(-6)}`,
         totalAmount: receiptTotal,
         subtotal: Number(res?.subtotal ?? payload.subtotal ?? cartSubtotal),
         payments: res?.payments && res.payments.length > 0 ? res.payments : payload.payments,
-        items: res?.items && res.items.length > 0 ? res.items : payload.items
+        items: cart.map((c) => ({ name: c.name, quantity: c.quantity, price: c.sellingPrice }))
       };
 
       setLastReceipt(receiptData);
@@ -1131,20 +1134,36 @@ export function PosView() {
             </div>
             <div>
               <h3 className="font-bold text-lg text-white font-sans">Sale Completed!</h3>
+              {lastReceipt.orderNumber && (
+                <div className="inline-block my-1.5 px-4 py-1 rounded-xl bg-amber-500/20 border border-amber-500/50 text-amber-400 font-mono text-2xl font-black tracking-wider shadow-inner">
+                  ORDER {lastReceipt.orderNumber}
+                </div>
+              )}
               <p className="text-xs text-slate-400">{lastReceipt.saleNumber}</p>
             </div>
 
-            <div className="p-4 bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 text-xs text-left space-y-2 text-slate-800 dark:text-slate-200 shadow-sm">
+            <div id="pos-printable-receipt" className="p-4 bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 text-xs text-left space-y-2 text-slate-800 dark:text-slate-200 shadow-sm print:border-none print:shadow-none print:p-0">
               <div className="text-center border-b border-dashed border-slate-300 dark:border-slate-700 pb-2 mb-2 font-sans">
                 <p className="font-extrabold text-sm text-slate-900 dark:text-white">THE LSPOT RESTAURANT</p>
                 <p className="text-[10px] text-slate-500">Manyama, Kalumbila, Zambia</p>
                 <p className="text-[10px] text-slate-500 font-mono">TPIN: 1004829104 • VAT Reg: 16%</p>
+                {lastReceipt.orderNumber && (
+                  <p className="text-xl font-mono font-black text-amber-600 dark:text-amber-400 mt-1">
+                    ORDER {lastReceipt.orderNumber}
+                  </p>
+                )}
               </div>
 
               <div className="flex justify-between">
                 <span className="text-slate-500">Receipt Ref:</span>
                 <span className="font-bold text-amber-600 dark:text-amber-400">{lastReceipt.saleNumber}</span>
               </div>
+              {lastReceipt.tableNumber && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Table:</span>
+                  <span className="font-bold text-slate-900 dark:text-white">{lastReceipt.tableNumber}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-slate-500">Payment Tendered:</span>
                 <span className="font-bold">{lastReceipt.payments?.[0]?.paymentMethod || 'CASH'}</span>
@@ -1163,6 +1182,18 @@ export function PosView() {
                   })}
                 </span>
               </div>
+
+              {/* Itemized Lines */}
+              {Array.isArray(lastReceipt.items) && lastReceipt.items.length > 0 && (
+                <div className="border-t border-dashed border-slate-300 dark:border-slate-700 pt-2 my-1 space-y-1">
+                  {lastReceipt.items.map((it: any, idx: number) => (
+                    <div key={idx} className="flex justify-between text-[11px]">
+                      <span>{it.quantity}x {it.name || it.menuItem?.name}</span>
+                      <span className="font-mono">{formatZMW(Number(it.price || it.unitPrice || 0) * Number(it.quantity || 1))}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="flex justify-between text-sm font-bold border-t border-dashed border-slate-300 dark:border-slate-700 pt-2 text-slate-900 dark:text-white">
                 <span>TOTAL PAID:</span>
                 <span className="font-mono text-amber-600 dark:text-amber-400">

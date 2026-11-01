@@ -63,13 +63,13 @@ export class KitchenService {
     }
 
     // 2. Reconcile & close any stale OPEN registers from previous business days (< businessDateUtc)
-    //    so yesterday's cooked food never accumulates into today's register (unsold leftovers become day-end waste).
-    //    If any production batch was accidentally recorded TODAY onto a stale open register, migrate that batch to today's register.
+    //    Only check if there are registers specifically older than today's business date.
     const staleOpenRegisters = await prisma.kitchenRegister.findMany({
       where: {
         tenantId,
         ...(targetBranchId ? { branchId: targetBranchId } : {}),
         status: KitchenRegisterStatus.OPEN,
+        businessDate: { lt: businessDateUtc },
         id: { not: register.id }
       },
       include: {
@@ -433,6 +433,23 @@ export class KitchenService {
           }
         });
       }
+
+      await tx.auditEvent.create({
+        data: {
+          tenantId,
+          userId: chefId || null,
+          action: 'KITCHEN_BATCH_RECORD',
+          entityType: 'PRODUCTION_BATCH',
+          entityId: batch.id,
+          details: {
+            menuItemId: menuItem.id,
+            menuItemName: menuItem.name,
+            preparedPortions: data.actualPreparedPortions,
+            plannedPortions: data.plannedPortions,
+            notes: data.notes
+          }
+        }
+      });
 
       return batch;
     });

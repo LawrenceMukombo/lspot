@@ -25,6 +25,7 @@ import { useTheme } from '../context/ThemeContext.js';
 import { SmartCalculator } from './SmartCalculator.js';
 import { BiometricScannerModal } from './BiometricScannerModal.js';
 import { BiometricCredentialRecord, loginWithBiometricSession } from '../utils/biometrics.js';
+import { toast } from './Toast.js';
 
 interface NavbarProps {
   activeShift?: any;
@@ -48,6 +49,10 @@ export function Navbar({ activeShift }: NavbarProps) {
   const [enteredPin, setEnteredPin] = useState('');
   const [pinError, setPinError] = useState('');
   const [lockBiometricType, setLockBiometricType] = useState<'thumbprint' | 'face' | null>(null);
+
+  // Self-Service Biometric Enrollment state for logged-in staff member
+  const [showBiometricSelectModal, setShowBiometricSelectModal] = useState(false);
+  const [selfRegisterBiometricType, setSelfRegisterBiometricType] = useState<'thumbprint' | 'face' | null>(null);
 
   // Self-Service Change / Reset Password Modal state
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
@@ -83,11 +88,15 @@ export function Navbar({ activeShift }: NavbarProps) {
   useEffect(() => {
     fetchShift();
     const handleShiftUpdated = () => fetchShift();
+    const handleOpenBiometricEnrollment = () => setShowBiometricSelectModal(true);
+
     window.addEventListener('shiftUpdated', handleShiftUpdated);
+    window.addEventListener('openBiometricRegistration', handleOpenBiometricEnrollment);
     const shiftInterval = setInterval(fetchShift, 10000);
 
     return () => {
       window.removeEventListener('shiftUpdated', handleShiftUpdated);
+      window.removeEventListener('openBiometricRegistration', handleOpenBiometricEnrollment);
       clearInterval(shiftInterval);
     };
   }, []);
@@ -569,6 +578,16 @@ export function Navbar({ activeShift }: NavbarProps) {
 
                 <div className="space-y-0.5">
                   <button
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      setShowBiometricSelectModal(true);
+                    }}
+                    className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white transition"
+                  >
+                    <Fingerprint className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Register Biometrics (Thumb/Face)</span>
+                  </button>
+                  <button
                     onClick={handleOpenChangePasswordModal}
                     className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white transition"
                   >
@@ -806,6 +825,94 @@ export function Navbar({ activeShift }: NavbarProps) {
         biometricType={lockBiometricType || 'thumbprint'}
         onSuccess={handleLockBiometricSuccess}
         onClose={() => setLockBiometricType(null)}
+      />
+
+      {/* Self-Service Biometric Enrollment Selector Modal */}
+      {showBiometricSelectModal && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <Fingerprint className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-white">Register Biometrics</h3>
+                  <p className="text-xs text-slate-400">
+                    Enroll for @{currentUser?.username || 'staff'} • Fast 1s login
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBiometricSelectModal(false)}
+                className="p-1 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300">
+              Select which biometric credential you want to register for your account. You can register both:
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowBiometricSelectModal(false);
+                  setSelfRegisterBiometricType('thumbprint');
+                }}
+                className="p-4 rounded-2xl bg-slate-950 border border-slate-800 hover:border-emerald-500/50 hover:bg-emerald-950/20 text-left transition space-y-2 group"
+              >
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition">
+                  <Fingerprint className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="font-extrabold text-sm text-white">Thumbprint</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Hardware sensor or capacitive screen pad</p>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowBiometricSelectModal(false);
+                  setSelfRegisterBiometricType('face');
+                }}
+                className="p-4 rounded-2xl bg-slate-950 border border-slate-800 hover:border-purple-500/50 hover:bg-purple-950/20 text-left transition space-y-2 group"
+              >
+                <div className="w-9 h-9 rounded-xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400 group-hover:scale-105 transition">
+                  <ScanFace className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="font-extrabold text-sm text-white">Face ID</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Front camera live facial landmark scanner</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Self-Service Biometric Registration Scanner Modal */}
+      <BiometricScannerModal
+        isOpen={selfRegisterBiometricType !== null}
+        mode="register"
+        biometricType={selfRegisterBiometricType || 'thumbprint'}
+        targetUser={{
+          id: currentUser?.id || 'staff',
+          username: currentUser?.username || 'staff',
+          fullName: currentUser?.fullName || 'Staff Member'
+        }}
+        onSuccess={(rec) => {
+          setSelfRegisterBiometricType(null);
+          toast.success(
+            `✓ ${selfRegisterBiometricType === 'face' ? 'Face Recognition' : 'Thumbprint'} enrolled for ${rec.fullName}!`,
+            'Biometric Registered'
+          );
+        }}
+        onClose={() => setSelfRegisterBiometricType(null)}
       />
 
       {/* Intelligent Restaurant Calculator Modal */}

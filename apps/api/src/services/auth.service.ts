@@ -11,6 +11,7 @@ import {
   DEFAULT_TIMEZONE
 } from '@lspot/shared';
 import { getJwtSecret } from '../middleware/auth.js';
+import { logAuditEvent } from '../middleware/audit.js';
 
 async function matchesPin(plainPin: string, storedPin: string | null | undefined): Promise<boolean> {
   if (!storedPin || !plainPin) return false;
@@ -165,6 +166,11 @@ export class AuthService {
       data: { lastLoginAt: new Date() }
     });
 
+    await logAuditEvent(user.tenantId, user.id, 'USER_LOGIN_PASSWORD', 'User', user.id, {
+      username: user.username,
+      role: user.role
+    });
+
     return {
       token,
       user: {
@@ -218,6 +224,11 @@ export class AuthService {
     await prisma.user.update({
       where: { id: matchedUser.id },
       data: { lastLoginAt: new Date() }
+    });
+
+    await logAuditEvent(matchedUser.tenantId, matchedUser.id, 'USER_LOGIN_PIN', 'User', matchedUser.id, {
+      username: matchedUser.username,
+      role: matchedUser.role
     });
 
     return {
@@ -535,6 +546,12 @@ export class AuthService {
       }
     });
 
+    await logAuditEvent(tenantId, entry.userId, 'BIOMETRIC_REGISTERED', 'User', entry.userId, {
+      username: entry.username,
+      type: entry.type,
+      deviceLabel: entry.deviceLabel
+    });
+
     return entry;
   }
 
@@ -560,6 +577,11 @@ export class AuthService {
         clientTime: new Date()
       }
     });
+
+    await logAuditEvent(tenantId, userId, 'BIOMETRIC_REMOVED', 'User', userId, {
+      type
+    });
+
     return { removed: true, remaining: filtered.length };
   }
 
@@ -628,6 +650,12 @@ export class AuthService {
     await prisma.user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date() }
+    });
+
+    await logAuditEvent(user.tenantId, user.id, 'USER_LOGIN_BIOMETRIC', 'User', user.id, {
+      username: user.username,
+      role: user.role,
+      biometricType: matchedRecord.type || data.type || 'thumbprint'
     });
 
     return {

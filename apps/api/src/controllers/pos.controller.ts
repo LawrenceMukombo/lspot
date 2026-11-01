@@ -168,7 +168,7 @@ posRouter.get('/kds-tickets', authenticate, async (req: RequestWithUser, res: Re
   }
 });
 
-posRouter.patch('/kds-tickets/:id/status', authenticate, async (req: RequestWithUser, res: Response) => {
+const handleKdsTicketUpdate = async (req: RequestWithUser, res: Response) => {
   try {
     const ticketId = String(req.params.id);
     const updated = await posService.updateKdsTicketStatus(
@@ -182,7 +182,11 @@ posRouter.patch('/kds-tickets/:id/status', authenticate, async (req: RequestWith
   } catch (err: any) {
     return res.status(400).json({ success: false, message: err.message });
   }
-});
+};
+
+posRouter.patch('/kds-tickets/:id/status', authenticate, handleKdsTicketUpdate);
+posRouter.patch('/kds-tickets/:id', authenticate, handleKdsTicketUpdate);
+posRouter.put('/kds-tickets/:id', authenticate, handleKdsTicketUpdate);
 
 // Customer Loyalty Stamp Card Endpoints
 posRouter.get('/loyalty/:phone', authenticate, async (req: RequestWithUser, res: Response) => {
