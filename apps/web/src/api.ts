@@ -357,6 +357,28 @@ function readGetCache(endpoint: string): { found: boolean; data: any } {
     }
   }
 
+  if (endpoint.startsWith('/auth/biometrics')) {
+    const rawBio = localStorage.getItem('lspot_biometric_credentials_map');
+    if (rawBio) {
+      try {
+        const parsed = JSON.parse(rawBio);
+        return { found: true, data: Object.values(parsed) };
+      } catch {}
+    }
+    return { found: true, data: [] };
+  }
+
+  if (endpoint.startsWith('/pos/loyalty/')) {
+    const phone = endpoint.replace('/pos/loyalty/', '');
+    const saved = localStorage.getItem(`lspot_loyalty_${phone}`);
+    if (saved) {
+      try {
+        return { found: true, data: JSON.parse(saved) };
+      } catch {}
+    }
+    return { found: true, data: { phone, name: 'Valued Guest', stamps: 0, freeSoftDrinksEarned: 0 } };
+  }
+
   if (endpoint.startsWith('/auth/audit-events') || endpoint.startsWith('/restaurant/audit-events')) {
     return {
       found: true,
@@ -471,22 +493,49 @@ export async function syncAllOfflineData(): Promise<{
   let syncedSales = 0;
   let syncedMutations = 0;
   const apiBase = getApiBase();
-  const token = getAuthToken();
+  let token = getAuthToken();
 
   try {
     // 1. Check server reachability & live web build version with a fast health ping
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
     const healthRes = await fetch(`${apiBase}/health`, {
       cache: 'no-store',
       signal: controller.signal
     });
     clearTimeout(timeoutId);
     if (!healthRes.ok) {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('lspotConnectivityChanged', { detail: { online: false } }));
+      }
       return { syncedSales: 0, syncedMutations: 0, remaining: getOfflinePendingCount(), online: false };
     }
     const healthJson = await healthRes.json().catch(() => null);
     const remoteBuildId: string | undefined = healthJson?.buildId;
+
+    // Silent PIN exchange: if currently on an offline token, refresh to a real JWT token
+    if (!token || token.startsWith('offline-token-')) {
+      const lastPin = localStorage.getItem('lspot_last_verified_pin');
+      if (lastPin) {
+        try {
+          const pinRes = await fetch(`${apiBase}/auth/pin-login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pin: lastPin })
+          });
+          if (pinRes.ok) {
+            const pinJson = await pinRes.json();
+            if (pinJson?.data?.token) {
+              const freshToken: string = pinJson.data.token;
+              token = freshToken;
+              setAuthSession(freshToken, pinJson.data.user);
+            }
+          }
+        } catch {
+          // Continue if silent pin refresh fails
+        }
+      }
+    }
 
     const authHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -579,19 +628,20 @@ export async function syncAllOfflineData(): Promise<{
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('offlineQueueUpdated'));
+      window.dispatchEvent(new CustomEvent('lspotConnectivityChanged', { detail: { online: true } }));
       if (syncedSales > 0 || syncedMutations > 0) {
         window.dispatchEvent(new CustomEvent('lspotDataSynced', { detail: { syncedSales, syncedMutations } }));
         window.dispatchEvent(new CustomEvent('kitchenRegisterUpdated'));
+        window.dispatchEvent(new CustomEvent('shiftUpdated'));
       }
 
-      // 5. Over-The-Air (OTA) Web & Android App Version Sync
+      // 5. Over-The-Air (OTA) Web App Version Sync
       if (remoteBuildId) {
         const previousBuildId = localStorage.getItem('lspot_active_build_id');
         if (!previousBuildId) {
           localStorage.setItem('lspot_active_build_id', remoteBuildId);
         } else if (previousBuildId !== remoteBuildId && remainingNow === 0) {
           localStorage.setItem('lspot_active_build_id', remoteBuildId);
-          // Clear outdated Service Worker caches so the new web bundle loads cleanly
           if ('caches' in window) {
             caches
               .keys()
@@ -609,15 +659,6 @@ export async function syncAllOfflineData(): Promise<{
           );
         }
       }
-
-      // If Android APK booted offline from file:///android_asset and is now online with 0 pending queue, switch to live cloud web app
-      if (
-        remainingNow === 0 &&
-        window.location.protocol === 'file:' &&
-        typeof (window as any).AndroidBridge?.switchToLiveCloud === 'function'
-      ) {
-        (window as any).AndroidBridge.switchToLiveCloud();
-      }
     }
 
     return {
@@ -627,6 +668,9 @@ export async function syncAllOfflineData(): Promise<{
       online: true
     };
   } catch {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('lspotConnectivityChanged', { detail: { online: false } }));
+    }
     return {
       syncedSales,
       syncedMutations,
@@ -636,6 +680,56 @@ export async function syncAllOfflineData(): Promise<{
   } finally {
     isSyncInProgress = false;
   }
+}
+
+let globalSyncEngineStarted = false;
+
+export function startGlobalSyncEngine(): void {
+  if (typeof window === 'undefined' || globalSyncEngineStarted) return;
+  globalSyncEngineStarted = true;
+
+  const runSync = async () => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      window.dispatchEvent(new CustomEvent('lspotConnectivityChanged', { detail: { online: false } }));
+      return;
+    }
+    try {
+      const res = await syncAllOfflineData();
+      window.dispatchEvent(new CustomEvent('lspotConnectivityChanged', { detail: { online: res.online } }));
+    } catch {
+      window.dispatchEvent(new CustomEvent('lspotConnectivityChanged', { detail: { online: false } }));
+    }
+  };
+
+  window.addEventListener('online', () => {
+    window.dispatchEvent(new CustomEvent('lspotConnectivityChanged', { detail: { online: true } }));
+    runSync();
+  });
+
+  window.addEventListener('offline', () => {
+    window.dispatchEvent(new CustomEvent('lspotConnectivityChanged', { detail: { online: false } }));
+  });
+
+  window.addEventListener('offlineQueueUpdated', () => {
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      runSync();
+    }
+  });
+
+  window.addEventListener('focus', () => {
+    if (typeof navigator !== 'undefined' && navigator.onLine && getOfflinePendingCount() > 0) {
+      runSync();
+    }
+  });
+
+  // Background 10-second sync heartbeat
+  setInterval(runSync, 10000);
+  setTimeout(runSync, 1200);
+}
+
+// Auto-start global background sync engine on module import
+if (typeof window !== 'undefined') {
+  startGlobalSyncEngine();
 }
 
 export async function apiRequest<T = any>(
@@ -655,7 +749,10 @@ export async function apiRequest<T = any>(
   const isAuthEndpoint =
     endpoint.startsWith('/auth/login') ||
     endpoint.startsWith('/auth/pin-login') ||
-    endpoint.startsWith('/auth/biometric-login');
+    endpoint.startsWith('/auth/biometrics') ||
+    endpoint.startsWith('/auth/biometric-login') ||
+    endpoint.startsWith('/auth/request-reset-code') ||
+    endpoint.startsWith('/auth/reset-password-self-service');
   const isLivePaymentCheck = endpoint.startsWith('/pos/momo-status/');
 
   // Fast offline path for GET requests (excluding live payment verification endpoints)
@@ -686,13 +783,31 @@ export async function apiRequest<T = any>(
       }
     }
 
-    // 2. If a non-auth, non-POS-checkout mutation failed while offline, queue it in outbox with optimistic state updates
-    if (
-      method !== 'GET' &&
-      !isAuthEndpoint &&
-      endpoint !== '/pos/checkout' &&
-      !endpoint.startsWith('/pos/momo-initiate')
-    ) {
+    // 2. Auth endpoints must throw so UI offline credential fallbacks execute
+    if (isAuthEndpoint) {
+      throw new Error(
+        typeof navigator !== 'undefined' && !navigator.onLine
+          ? 'Terminal is currently in Offline Mode. Authenticating locally.'
+          : 'Unable to reach server. Authenticating from local offline staff roster.'
+      );
+    }
+
+    // 3. POS Checkout must throw so PosView can generate offline receipt and queue to sales outbox
+    if (endpoint === '/pos/checkout') {
+      throw new Error(
+        typeof navigator !== 'undefined' && !navigator.onLine
+          ? 'Terminal is currently in Offline Mode. Queuing sale locally.'
+          : 'Unable to reach server. Queuing sale locally.'
+      );
+    }
+
+    // 4. Mobile money endpoints require live gateway
+    if (endpoint.startsWith('/pos/momo-')) {
+      throw new Error('Mobile money gateway requires live internet. Please use Cash, Card, or Credit.');
+    }
+
+    // 5. If any other mutation failed while offline, queue it in outbox with optimistic state updates
+    if (method !== 'GET') {
       const bodyStr = typeof options.body === 'string' ? options.body : undefined;
       const queued = enqueueOfflineMutation(endpoint, method, bodyStr);
       let parsedBody: any = {};
@@ -729,6 +844,54 @@ export async function apiRequest<T = any>(
         } else {
           throw new Error('Invalid supervisor PIN. Override denied.');
         }
+      }
+
+      // Offline Shift Opening
+      if (endpoint === '/shifts/open') {
+        const floatVal = Number(parsedBody.openingFloat || 500);
+        const shiftRecord = {
+          id: queued.id,
+          status: 'OPEN',
+          openingFloat: floatVal,
+          expectedCash: floatVal,
+          openedAt: queued.queuedAt,
+          cashierName: 'Cashier (Till Active)'
+        };
+        try {
+          localStorage.setItem('lspot_offline_active_shift', JSON.stringify(shiftRecord));
+          if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('shiftUpdated'));
+        } catch {}
+        return shiftRecord as unknown as T;
+      }
+
+      // Offline Shift Closing
+      if (endpoint === '/shifts/close') {
+        try {
+          localStorage.removeItem('lspot_offline_active_shift');
+          if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('shiftUpdated'));
+        } catch {}
+        return {
+          success: true,
+          message: 'Shift closed offline and queued for server sync.',
+          reconciliation: {
+            variance: 0,
+            actualCash: Number(parsedBody.actualCashCounted || 0)
+          }
+        } as unknown as T;
+      }
+
+      // Offline KDS Status Update / Bump
+      if (endpoint.includes('/kds-tickets') && endpoint.includes('/status')) {
+        try {
+          const rawKds = localStorage.getItem('lspot_active_kds_orders');
+          if (rawKds) {
+            const tickets = JSON.parse(rawKds);
+            const remaining = tickets.filter((t: any) => !endpoint.includes(encodeURIComponent(t.id)) && !endpoint.includes(t.id));
+            localStorage.setItem('lspot_active_kds_orders', JSON.stringify(remaining));
+            if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('kdsTicketsUpdated'));
+          }
+        } catch {}
+        return { success: true, message: 'KDS status updated offline' } as unknown as T;
       }
 
       // Offline Kitchen Batch Recording

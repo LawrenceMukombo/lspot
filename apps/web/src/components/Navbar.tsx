@@ -171,6 +171,25 @@ export function Navbar({ activeShift }: NavbarProps) {
       }
     };
 
+    const handleConnectivity = (e: any) => {
+      if (e.detail && typeof e.detail.online === 'boolean') {
+        setIsOnline(e.detail.online);
+      }
+      checkOfflineQueue();
+    };
+
+    const handleDataSynced = (e: any) => {
+      checkOfflineQueue();
+      if (e.detail) {
+        const total = (e.detail.syncedSales || 0) + (e.detail.syncedMutations || 0);
+        if (total > 0) {
+          setSyncFeedback(`Auto-synced ${total} record${total === 1 ? '' : 's'}`);
+          setTimeout(() => setSyncFeedback(null), 3500);
+          fetchShift();
+        }
+      }
+    };
+
     const handleOnline = () => {
       setIsOnline(true);
       runBackgroundSync();
@@ -181,19 +200,15 @@ export function Navbar({ activeShift }: NavbarProps) {
     };
 
     const handleWebUpdateAvailable = () => {
-      setSyncFeedback('New web update detected • Applying update...');
-      setTimeout(() => {
-        if (typeof (window as any).AndroidBridge?.reloadLiveCloud === 'function') {
-          (window as any).AndroidBridge.reloadLiveCloud();
-        } else {
-          window.location.reload();
-        }
-      }, 1500);
+      setSyncFeedback('Web update ready');
+      setTimeout(() => setSyncFeedback(null), 4000);
     };
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     window.addEventListener('offlineQueueUpdated', checkOfflineQueue);
+    window.addEventListener('lspotConnectivityChanged', handleConnectivity);
+    window.addEventListener('lspotDataSynced', handleDataSynced);
     window.addEventListener('lspotWebUpdateAvailable', handleWebUpdateAvailable);
 
     // Synchronize automatically every 10 seconds across Web & Android terminals
@@ -204,6 +219,8 @@ export function Navbar({ activeShift }: NavbarProps) {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('offlineQueueUpdated', checkOfflineQueue);
+      window.removeEventListener('lspotConnectivityChanged', handleConnectivity);
+      window.removeEventListener('lspotDataSynced', handleDataSynced);
       window.removeEventListener('lspotWebUpdateAvailable', handleWebUpdateAvailable);
       clearInterval(autoSyncTimer);
     };

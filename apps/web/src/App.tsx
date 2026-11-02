@@ -17,7 +17,7 @@ import { Sidebar, NavTab } from './components/Sidebar.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { ToastViewport, toast } from './components/Toast.js';
 import { ThemeProvider } from './context/ThemeContext.js';
-import { apiRequest, setAuthSession, getAuthToken, syncAllOfflineData } from './api.js';
+import { apiRequest, setAuthSession, getAuthToken, syncAllOfflineData, getOfflinePendingCount } from './api.js';
 import { RESTAURANT_NAME, RESTAURANT_LOCATION } from '@lspot/shared';
 import { SplashScreen } from './components/SplashScreen.js';
 import { BiometricScannerModal } from './components/BiometricScannerModal.js';
@@ -78,11 +78,38 @@ export function App() {
   const [isRecoverySubmitting, setIsRecoverySubmitting] = useState(false);
   const [isRequestingCode, setIsRequestingCode] = useState(false);
 
+  // Offline status & background sync indicators on login view
+  const [isOnline, setIsOnline] = useState<boolean>(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [pendingQueueCount, setPendingQueueCount] = useState<number>(() => getOfflinePendingCount());
+  const [isManualSyncing, setIsManualSyncing] = useState<boolean>(false);
+
   useEffect(() => {
     setPassword('');
     setPin('');
     syncBiometricsFromServer().catch(() => {});
     syncAllOfflineData().catch(() => {});
+
+    const updateQueue = () => setPendingQueueCount(getOfflinePendingCount());
+    const onOnline = () => { setIsOnline(true); updateQueue(); };
+    const onOffline = () => { setIsOnline(false); updateQueue(); };
+    const onConnectivity = (e: any) => {
+      if (e.detail && typeof e.detail.online === 'boolean') {
+        setIsOnline(e.detail.online);
+      }
+      updateQueue();
+    };
+
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    window.addEventListener('offlineQueueUpdated', updateQueue);
+    window.addEventListener('lspotConnectivityChanged', onConnectivity);
+
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+      window.removeEventListener('offlineQueueUpdated', updateQueue);
+      window.removeEventListener('lspotConnectivityChanged', onConnectivity);
+    };
   }, []);
 
   const handleSelectTab = (tab: NavTab) => {
@@ -323,20 +350,11 @@ export function App() {
     }
   };
 
-  // Instant Auto-Login upon completing password entry or 4–6 digit staff PIN
+  // Instant Auto-Login strictly for 4–6 digit staff PIN (Credentials require explicit submit or Enter)
   useEffect(() => {
     if (isAuthenticated || isSubmitting || authError) return;
 
-    if (loginMode === 'credentials') {
-      const cleanUser = username.trim();
-      const cleanPass = password;
-      if (cleanUser.length >= 3 && cleanPass.length >= 6) {
-        const timer = setTimeout(() => {
-          handleLoginSubmit();
-        }, 450);
-        return () => clearTimeout(timer);
-      }
-    } else if (loginMode === 'pin') {
+    if (loginMode === 'pin') {
       const cleanPin = pin.trim();
       if (cleanPin.length === 4 || cleanPin.length === 6) {
         const timer = setTimeout(() => {
@@ -345,7 +363,7 @@ export function App() {
         return () => clearTimeout(timer);
       }
     }
-  }, [loginMode, username, password, pin, isAuthenticated, isSubmitting, authError]);
+  }, [loginMode, pin, isAuthenticated, isSubmitting, authError]);
 
   const handleBiometricLoginSuccess = async (record: BiometricCredentialRecord) => {
     setBiometricModalType(null);
@@ -516,6 +534,47 @@ export function App() {
               <p className="text-xs text-slate-400">{RESTAURANT_LOCATION} • Staff Sign In</p>
             </div>
 
+            {/* Offline Engine & Cloud Sync Status Banner */}
+            {(!isOnline || pendingQueueCount > 0) && (
+              <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-xs animate-in fade-in">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+                  <div>
+                    <span className="font-extrabold text-amber-400">
+                      {isOnline ? 'Online • Outbox Pending' : 'Offline Mode Active'}
+                    </span>
+                    <p className="text-[11px] text-slate-400">
+                      {pendingQueueCount > 0
+                        ? `${pendingQueueCount} transaction${pendingQueueCount === 1 ? '' : 's'} queued locally on device`
+                        : 'Local storage engine ready for sales & till operations'}
+                    </p>
+                  </div>
+                </div>
+                {isOnline && (
+                  <button
+                    type="button"
+                    disabled={isManualSyncing}
+                    onClick={async () => {
+                      setIsManualSyncing(true);
+                      try {
+                        const res = await syncAllOfflineData();
+                        setPendingQueueCount(res.remaining);
+                        toast.success(
+                          `Sync complete: ${res.syncedSales + res.syncedMutations} synced to cloud`,
+                          'Data Synchronized'
+                        );
+                      } finally {
+                        setIsManualSyncing(false);
+                      }
+                    }}
+                    className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition shadow-sm"
+                  >
+                    {isManualSyncing ? 'Syncing...' : 'Sync Now'}
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold">
               <button
                 type="button"
@@ -674,6 +733,10 @@ export function App() {
                 >
                   Need help signing in? <span className="text-amber-400 underline">Recover or Reset Password</span>
                 </button>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-[11px] text-slate-400 text-center leading-relaxed">
+                ⚡ <span className="text-amber-400 font-bold">100% Offline Capable</span> — Works completely without internet. Use any staff PIN (Cashier: <code className="text-amber-400 font-mono">1122</code>, Manager: <code className="text-amber-400 font-mono">1234</code>, Owner: <code className="text-amber-400 font-mono">9999</code>) to sign in.
               </div>
             </form>
 

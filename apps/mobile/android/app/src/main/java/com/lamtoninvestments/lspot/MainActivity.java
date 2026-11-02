@@ -111,6 +111,8 @@ public class MainActivity extends AppCompatActivity {
                     dismissNativeSplash();
                 }
 
+                private long lastReloadTime = 0;
+
                 @Override
                 public void onReceivedError(
                         WebView view,
@@ -118,12 +120,20 @@ public class MainActivity extends AppCompatActivity {
                         WebResourceError error
                 ) {
                     if (request != null && request.isForMainFrame()) {
-                        Log.w(TAG, "MainFrame navigation error on URL: " + request.getUrl());
-                        mainHandler.post(() -> {
-                            if (webView != null) {
-                                webView.loadUrl(LOCAL_BUNDLE_URL);
+                        String failingUrl = request.getUrl() != null ? request.getUrl().toString() : "";
+                        Log.w(TAG, "MainFrame navigation error on URL: " + failingUrl);
+                        // Prevent recursive reload / crash loop if local bundle encountered an error
+                        if (!failingUrl.startsWith("https://" + LOCAL_ORIGIN)) {
+                            long now = System.currentTimeMillis();
+                            if (now - lastReloadTime > 5000) {
+                                lastReloadTime = now;
+                                mainHandler.post(() -> {
+                                    if (webView != null) {
+                                        webView.loadUrl(LOCAL_BUNDLE_URL);
+                                    }
+                                });
                             }
-                        });
+                        }
                     }
                 }
             });
@@ -168,20 +178,25 @@ public class MainActivity extends AppCompatActivity {
         if (q >= 0) {
             path = path.substring(0, q);
         }
+        int h = path.indexOf('#');
+        if (h >= 0) {
+            path = path.substring(0, h);
+        }
 
         try {
             InputStream is = getAssets().open("public/" + path);
             String mime = getMimeType(path);
+            String encoding = isBinaryMime(mime) ? null : "UTF-8";
             Map<String, String> headers = new HashMap<>();
             headers.put("Access-Control-Allow-Origin", "*");
             headers.put("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
             headers.put("Access-Control-Allow-Headers", "*");
             headers.put("Cache-Control", "no-cache");
-            return new WebResourceResponse(mime, "UTF-8", 200, "OK", headers, is);
+            return new WebResourceResponse(mime, encoding, 200, "OK", headers, is);
         } catch (IOException e) {
             // Single-Page Application (SPA) Fallback:
             // Route missing sub-paths (e.g. /kitchen, /pos, /shifts) to index.html
-            if (!path.contains(".")) {
+            if (!path.contains(".") || path.endsWith(".html")) {
                 try {
                     InputStream is = getAssets().open("public/index.html");
                     Map<String, String> headers = new HashMap<>();
@@ -195,6 +210,11 @@ public class MainActivity extends AppCompatActivity {
             }
             return null;
         }
+    }
+
+    private boolean isBinaryMime(String mime) {
+        if (mime == null) return false;
+        return mime.startsWith("image/") || mime.startsWith("font/") || mime.startsWith("audio/") || mime.equals("application/octet-stream");
     }
 
     private String getMimeType(String path) {
