@@ -128,6 +128,7 @@ export function App() {
     const onAuthRequired = () => {
       setIsAuthenticated(false);
       setCurrentUser(null);
+      setUsername('');
       setPassword('');
       setPin('');
       setAuthError(null);
@@ -184,7 +185,6 @@ export function App() {
           })
         });
         if (res?.token) {
-          localStorage.setItem('lspot_last_verified_pin', pin.trim());
           setAuthSession(res.token, res.user);
           setPin('');
         }
@@ -321,7 +321,7 @@ export function App() {
             ? allOfflineAccounts.find(
                 (a) =>
                   a.username.toLowerCase() === username.trim().toLowerCase() &&
-                  (a.password === password || password.length >= 6)
+                  a.password === password
               )
             : allOfflineAccounts.find(
                 (a) =>
@@ -330,7 +330,6 @@ export function App() {
               );
 
         if (matched) {
-          localStorage.setItem('lspot_last_verified_pin', matched.pin);
           setAuthSession(`offline-token-${Date.now()}`, matched.user);
           setPassword('');
           setPin('');
@@ -349,21 +348,6 @@ export function App() {
       setIsSubmitting(false);
     }
   };
-
-  // Instant Auto-Login strictly for 4–6 digit staff PIN (Credentials require explicit submit or Enter)
-  useEffect(() => {
-    if (isAuthenticated || isSubmitting || authError) return;
-
-    if (loginMode === 'pin') {
-      const cleanPin = pin.trim();
-      if (cleanPin.length === 4 || cleanPin.length === 6) {
-        const timer = setTimeout(() => {
-          handleLoginSubmit();
-        }, 120);
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [loginMode, pin, isAuthenticated, isSubmitting, authError]);
 
   const handleBiometricLoginSuccess = async (record: BiometricCredentialRecord) => {
     setBiometricModalType(null);

@@ -283,7 +283,6 @@ export function Navbar({ activeShift }: NavbarProps) {
       if (res && res.user) {
         setCurrentUser(res.user);
       }
-      localStorage.setItem('lspot_last_verified_pin', trimmedPin);
       setIsLocked(false);
       setEnteredPin('');
       setPinError('');
@@ -368,9 +367,7 @@ export function Navbar({ activeShift }: NavbarProps) {
           }
         } catch {}
 
-        const lastPin = localStorage.getItem('lspot_last_verified_pin');
-        const matchedOfflineUser =
-          baseOfflinePinMap[trimmedPin] || (lastPin && lastPin === trimmedPin ? currentUser : null);
+        const matchedOfflineUser = baseOfflinePinMap[trimmedPin];
 
         if (matchedOfflineUser) {
           setCurrentUser(matchedOfflineUser);

@@ -58,6 +58,13 @@ export function logoutSession(): void {
   localStorage.removeItem('lspot_token');
   localStorage.removeItem('lspot_user_profile');
   localStorage.removeItem('lspot_user');
+  localStorage.removeItem('lspot_last_verified_pin');
+  localStorage.removeItem('lspot_last_valid_jwt');
+  localStorage.removeItem('lspot_offline_auth_user');
+  localStorage.removeItem('lspot_active_shift');
+  try {
+    sessionStorage.clear();
+  } catch {}
   window.dispatchEvent(new Event('authRequired'));
 }
 
@@ -512,30 +519,6 @@ export async function syncAllOfflineData(): Promise<{
     }
     const healthJson = await healthRes.json().catch(() => null);
     const remoteBuildId: string | undefined = healthJson?.buildId;
-
-    // Silent PIN exchange: if currently on an offline token, refresh to a real JWT token
-    if (!token || token.startsWith('offline-token-')) {
-      const lastPin = localStorage.getItem('lspot_last_verified_pin');
-      if (lastPin) {
-        try {
-          const pinRes = await fetch(`${apiBase}/auth/pin-login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pin: lastPin })
-          });
-          if (pinRes.ok) {
-            const pinJson = await pinRes.json();
-            if (pinJson?.data?.token) {
-              const freshToken: string = pinJson.data.token;
-              token = freshToken;
-              setAuthSession(freshToken, pinJson.data.user);
-            }
-          }
-        } catch {
-          // Continue if silent pin refresh fails
-        }
-      }
-    }
 
     const authHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
